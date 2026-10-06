@@ -1,6 +1,10 @@
 name: Release
 
-# Push a tag like v1.0.0 to build the firmware and publish a GitHub release with:
+# Publishes a GitHub release when either
+#   * main receives a commit whose manifest.json "version" has no v<version> tag
+#     yet (bump the version, push, done — Actions creates the tag), or
+#   * someone pushes a tag like v1.0.0 directly.
+# Each release carries:
 #   nanoc6-spooky-<tag>-factory.bin     single image, flash at 0x0 (easiest)
 #   nanoc6-spooky-<tag>-app.bin         app only, for re-flashing at 0x10000
 #   nanoc6-spooky-<tag>-bootloader.bin  / -partitions.bin / .elf (debugging)
@@ -12,6 +16,7 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -28,14 +33,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Versions must agree (tag, manifest, firmware)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Decide tag and whether to publish
         run: |
-          tag="${GITHUB_REF_NAME#v}"
           manifest=$(python3 -c "import json;print(json.load(open('custom_components/spooky_lights/manifest.json'))['version'])")
           fw=$(sed -n 's/^#define FW_VERSION *"\(.*\)"/\1/p' "$SKETCH/config.h")
-          echo "tag=$tag manifest=$manifest firmware=$fw"
-          test "$tag" = "$manifest" && test "$tag" = "$fw"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"; publish=true
+          else
+            tag="v$manifest"
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+              publish=false   # this version is already released
+            else
+              publish=$([[ "$GITHUB_REF" == refs/heads/main ]] && echo true || echo false)
+            fi
+          fi
+          echo "tag=$tag manifest=$manifest firmware=$fw publish=$publish"
+          test "${tag#v}" = "$manifest" || { echo "::error::tag $tag != manifest $manifest"; exit 1; }
+          test "${tag#v}" = "$fw" || { echo "::error::tag $tag != firmware FW_VERSION $fw"; exit 1; }
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          echo "PUBLISH=$publish" >> "$GITHUB_ENV"
 
       - name: Firmware host tests
         run: tools/hosttest/run.sh
@@ -59,7 +75,7 @@ jobs:
       - name: Package
         run: |
           set -euo pipefail
-          v="${GITHUB_REF_NAME//\//-}"
+          v="$TAG"
           mkdir -p dist
           ls -la build/*.bin build/*.elf
           b=build/NanoC6_SpookyLights.ino
@@ -83,7 +99,7 @@ jobs:
 
       - name: Release notes
         run: |
-          v="${GITHUB_REF_NAME}"
+          v="$TAG"
           {
             echo "## Flash the NanoC6"
             echo
@@ -109,13 +125,15 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: nanoc6-spooky-${{ github.ref_name }}
+          name: nanoc6-spooky-${{ env.TAG }}
           path: dist/
 
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.PUBLISH == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          name: Spooky Lights ${{ github.ref_name }}
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
+          name: Spooky Lights ${{ env.TAG }}
           body_path: release-notes.md
           files: dist/*

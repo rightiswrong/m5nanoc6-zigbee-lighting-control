@@ -25,7 +25,7 @@ the string length, a "LED added/removed" event, and a jump-scare button.
 | `docs/PUBLISHING.md` | How to get the integration into the HACS default list |
 | `tools/hosttest/` | Firmware logic compiled on a PC against a bit-level P9813 chain simulator |
 | `tests/` | Integration logic tests + firmware ⇄ integration sync checks |
-| `.github/workflows/` | Validation on every push; `release.yml` builds and publishes binaries on a `v*` tag |
+| `.github/workflows/` | Validation on every push; `release.yml` builds the firmware and publishes a release whenever the version in `manifest.json` is bumped |
 
 ## The effects
 

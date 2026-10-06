@@ -21,10 +21,10 @@ exactly what HACS expects.
    Regenerate with `python3 tools/make_brand.py`.
 4. **Let the Actions run** (`.github/workflows/validate.yml`): *HACS validation*
    and *Hassfest* must pass. The other jobs test the firmware and logic.
-5. **Publish a GitHub release** (a full release, not just a tag). Pushing a
-   tag such as `v1.0.0` (matching `"version"` in `manifest.json`) runs
-   `.github/workflows/release.yml`, which builds the firmware and creates the
-   release with all binaries attached.
+5. **Publish a GitHub release** (a full release, not just a tag). This is
+   automatic: `.github/workflows/release.yml` publishes `v<version>` with all
+   binaries the first time `main` carries a `manifest.json` version that has
+   no tag yet (pushing a `v*` tag yourself works too).
 6. **Test as a custom repository**: HACS → ⋮ → *Custom repositories* → your
    repo URL, type *Integration* → Download → restart HA.
 7. **Submit to the default list**: fork `hacs/default`, add
@@ -38,4 +38,7 @@ exactly what HACS expects.
 1. Bump `"version"` in `manifest.json`.
 2. If you changed effects/endpoints in the firmware, the sync tests in
    `tests/test_logic.py` will fail until `logic.py` matches — that is on purpose.
-3. Push, wait for green Actions, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. Bump `FW_VERSION` in `firmware/NanoC6_SpookyLights/config.h` to the same
+   number (the release refuses to publish if they differ).
+4. Push to `main`. The Release workflow builds the firmware, creates the tag
+   `vX.Y.Z` and publishes the release with binaries.
