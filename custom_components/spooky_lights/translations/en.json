@@ -1,0 +1,84 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Summon your Spooky Light",
+        "description": "Pick the NanoC6 you paired with ZHA or Zigbee2MQTT (it reports itself as SpookyLab NanoC6-Spooky). Its entities will be mapped automatically on the next step. Leave empty to map entities by hand.",
+        "data": {
+          "device_id": "NanoC6 device"
+        }
+      },
+      "entities": {
+        "title": "Which entity does what?",
+        "description": "{found} entities were recognised automatically — check them, fill any gaps, and press Submit. Only the light and the effect control are required.",
+        "data": {
+          "light": "Light (endpoint 10)",
+          "effect_number": "Effect (endpoint 12)",
+          "count_sensor": "Grove LEDs detected (endpoint 11 input)",
+          "manual_number": "Manual LED count (endpoint 11 output)",
+          "speed_number": "Effect speed (endpoint 13)",
+          "output_number": "Output routing (endpoint 14)",
+          "spotlight_number": "Spotlight pixel (endpoint 15)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This NanoC6 is already haunted by Spooky Lights."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Re-map Spooky Light entities",
+        "data": {
+          "light": "Light (endpoint 10)",
+          "effect_number": "Effect (endpoint 12)",
+          "count_sensor": "Grove LEDs detected (endpoint 11 input)",
+          "manual_number": "Manual LED count (endpoint 11 output)",
+          "speed_number": "Effect speed (endpoint 13)",
+          "output_number": "Output routing (endpoint 14)",
+          "spotlight_number": "Spotlight pixel (endpoint 15)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "light": {
+      "spooky_light": { "name": "Haunted light" }
+    },
+    "select": {
+      "effect": { "name": "Effect" },
+      "output": {
+        "name": "Output",
+        "state": {
+          "auto": "Auto (Grove if present, else onboard)",
+          "onboard": "Onboard LED only",
+          "grove": "Grove chain only",
+          "both": "Onboard + Grove chain"
+        }
+      }
+    },
+    "number": {
+      "spotlight": { "name": "Spotlight pixel" }
+    },
+    "sensor": {
+      "active_pixels": { "name": "Active pixels" }
+    },
+    "event": {
+      "chain_change": {
+        "name": "Chain change",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "led_added": "LED added",
+              "led_removed": "LED removed"
+            }
+          }
+        }
+      }
+    },
+    "button": {
+      "jump_scare": { "name": "Jump scare" }
+    }
+  }
+}

@@ -1,0 +1,121 @@
+name: Release
+
+# Push a tag like v1.0.0 to build the firmware and publish a GitHub release with:
+#   nanoc6-spooky-<tag>-factory.bin     single image, flash at 0x0 (easiest)
+#   nanoc6-spooky-<tag>-app.bin         app only, for re-flashing at 0x10000
+#   nanoc6-spooky-<tag>-bootloader.bin  / -partitions.bin / .elf (debugging)
+#   spooky_lights-<tag>.zip             the Home Assistant integration
+#   nanoc6_spooky.mjs                   optional Zigbee2MQTT converter
+#   SHA256SUMS.txt
+# Run it manually (workflow_dispatch) to get the same files as a build artifact
+# without publishing a release.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FQBN: esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr
+  SKETCH: firmware/NanoC6_SpookyLights
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versions must agree (tag, manifest, firmware)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest=$(python3 -c "import json;print(json.load(open('custom_components/spooky_lights/manifest.json'))['version'])")
+          fw=$(sed -n 's/^#define FW_VERSION *"\(.*\)"/\1/p' "$SKETCH/config.h")
+          echo "tag=$tag manifest=$manifest firmware=$fw"
+          test "$tag" = "$manifest" && test "$tag" = "$fw"
+
+      - name: Firmware host tests
+        run: tools/hosttest/run.sh
+
+      - name: Integration logic tests
+        run: python3 -m unittest discover -s tests
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      - name: Install the Espressif ESP32 core
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          arduino-cli core list | tee core-version.txt
+
+      - name: Compile for ESP32-C6 (Zigbee router)
+        run: arduino-cli compile --fqbn "$FQBN" --build-path build --warnings default "$SKETCH"
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME//\//-}"
+          mkdir -p dist
+          ls -la build/*.bin build/*.elf
+          b=build/NanoC6_SpookyLights.ino
+          cp "$b.bin"            "dist/nanoc6-spooky-$v-app.bin"
+          cp "$b.bootloader.bin" "dist/nanoc6-spooky-$v-bootloader.bin"
+          cp "$b.partitions.bin" "dist/nanoc6-spooky-$v-partitions.bin"
+          cp "$b.elf"            "dist/nanoc6-spooky-$v.elf"
+          if [ -f "$b.merged.bin" ]; then
+            cp "$b.merged.bin" "dist/nanoc6-spooky-$v-factory.bin"
+          else
+            # Older cores don't emit a merged image; build one with esptool.
+            pip install --quiet esptool
+            boot_app0=$(find ~/.arduino15/packages/esp32/hardware -name boot_app0.bin | head -n1)
+            python3 -m esptool --chip esp32c6 merge_bin -o "dist/nanoc6-spooky-$v-factory.bin" \
+              0x0 "$b.bootloader.bin" 0x8000 "$b.partitions.bin" 0xe000 "$boot_app0" 0x10000 "$b.bin"
+          fi
+          (cd custom_components/spooky_lights && zip -qr "../../dist/spooky_lights-$v.zip" . -x '__pycache__/*')
+          cp zigbee2mqtt/nanoc6_spooky.mjs dist/
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - name: Release notes
+        run: |
+          v="${GITHUB_REF_NAME}"
+          {
+            echo "## Flash the NanoC6"
+            echo
+            echo "Easiest: open https://web.esphome.io in Chrome/Edge, connect the NanoC6 over USB-C,"
+            echo "choose **Install** and pick \`nanoc6-spooky-$v-factory.bin\`."
+            echo
+            echo "Or with esptool:"
+            echo
+            echo '```'
+            echo "esptool --chip esp32c6 write_flash 0x0 nanoc6-spooky-$v-factory.bin"
+            echo '```'
+            echo
+            echo "Then pair it with ZHA (Add device) and install the integration via HACS — see the README."
+            echo
+            echo "## Build"
+            echo
+            echo "FQBN \`$FQBN\`, Arduino core:"
+            echo
+            echo '```'
+            cat core-version.txt
+            echo '```'
+          } > release-notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nanoc6-spooky-${{ github.ref_name }}
+          path: dist/
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Spooky Lights ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: dist/*

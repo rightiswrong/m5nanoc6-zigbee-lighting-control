@@ -1,0 +1,13 @@
+{
+  "domain": "spooky_lights",
+  "name": "Spooky Lights (NanoC6)",
+  "codeowners": ["@rightiswrong"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/rightiswrong/m5nanoc6-zigbee-lighting-control",
+  "integration_type": "device",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/rightiswrong/m5nanoc6-zigbee-lighting-control/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}
