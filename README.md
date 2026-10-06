@@ -64,7 +64,7 @@ open [ESPHome Web](https://web.esphome.io) in Chrome or Edge, connect the NanoC6
 by USB-C, choose **Install** and pick the file. Or from a terminal:
 
 ```bash
-esptool --chip esp32c6 write_flash 0x0 nanoc6-spooky-v1.0.0-factory.bin
+esptool --chip esp32c6 write_flash 0x0 nanoc6-spooky-v1.0.1-factory.bin
 ```
 
 The prebuilt image uses the default `config.h` (loopback detection on,

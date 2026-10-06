@@ -7,7 +7,7 @@
 
 // Keep in sync with custom_components/spooky_lights/manifest.json "version"
 // (the release workflow refuses to publish if they differ from the tag).
-#define FW_VERSION "1.0.0"
+#define FW_VERSION "1.0.1"
 
 // ---------------------------------------------------------------- Board pins
 // M5NanoC6 pin map (M5Stack docs / ESPHome devices DB):
