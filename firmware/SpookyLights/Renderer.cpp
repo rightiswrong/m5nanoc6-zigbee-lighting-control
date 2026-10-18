@@ -42,7 +42,16 @@ int Renderer::frame(const ShowState &s, uint8_t chainCount, uint32_t dtMs, bool 
 
   // 1) effect
   const RGBf base = {s.color.r / 255.0f, s.color.g / 255.0f, s.color.b / 255.0f};
-  _fx.render(s.effect, _canvas, n, dtMs, s.speed, base);
+  if (s.effect == FX_DEMO_REEL) {
+    if (!_demoActive) {            // (re)start the reel from the top
+      _demo.reset(n);
+      _demoActive = true;
+    }
+    _demo.render(_canvas, n, dtMs, s.speed);
+  } else {
+    _demoActive = false;
+    _fx.render(s.effect, _canvas, n, dtMs, s.speed, base);
+  }
 
   // 2) spotlight: one chosen pixel holds the HA colour steady (the eye in the
   //    attic window) while the rest of the string keeps haunting.

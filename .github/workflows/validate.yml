@@ -37,15 +37,30 @@ jobs:
       - run: python -m unittest discover -s tests -v
 
   firmware-host-tests:
-    name: Firmware logic (host simulation)
+    name: Firmware logic (host simulation, 5 variants)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Fetch jsQR (independent QR decoder for the pairing-code check)
+        run: git clone --depth 1 https://github.com/cozmo/jsQR "$RUNNER_TEMP/jsQR"
       - run: tools/hosttest/run.sh
+        env:
+          JSQR: ${{ runner.temp }}/jsQR/dist/jsQR.js
 
   firmware-build:
-    name: Firmware build (ESP32-C6, Zigbee router)
+    name: Firmware build (${{ matrix.board }}, ${{ matrix.stack }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { board: nanoc6, stack: zigbee, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
+          - { board: nanoc6, stack: matter, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app" }
+          - { board: nanoh2, stack: zigbee, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
+          - { board: nanoh2, stack: matter, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=huge_app" }
     steps:
       - uses: actions/checkout@v4
       - uses: arduino/compile-sketches@v1
@@ -53,7 +68,7 @@ jobs:
           platforms: |
             - name: esp32:esp32
               source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
-          fqbn: esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr
+          fqbn: ${{ matrix.fqbn }}
           sketch-paths: |
-            - firmware/NanoC6_SpookyLights
+            - firmware/SpookyLights
           enable-warnings-report: true

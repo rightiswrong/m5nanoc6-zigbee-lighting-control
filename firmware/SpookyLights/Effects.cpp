@@ -12,6 +12,7 @@ const char *const EFFECT_NAMES[FX_COUNT] = {
   "Poltergeist",
   "Possessed Pumpkin",
   "Blood Moon",
+  "Demo Reel",
 };
 
 static const float TAU = 6.2831853f;
@@ -56,6 +57,9 @@ float Effects::rndf() { return (rnd() >> 8) * (1.0f / 16777216.0f); }
 void Effects::begin(uint32_t seed) {
   _rng = seed ? seed : 0x9E3779B9u;
   for (int i = 0; i < MAX_PIXELS; ++i) _wake[i] = 0;
+  _n = 0;
+  _t = 0;
+  _lastEffect = 255;      // a re-begun instance always starts its effect fresh
   resetState();
 }
 
@@ -88,11 +92,44 @@ void Effects::relayout(uint8_t n) {
   _n = n;
 }
 
+void Effects::prime(uint8_t n) {
+  if (n > MAX_PIXELS) n = MAX_PIXELS;
+  for (uint8_t i = 0; i < n; ++i) _wake[i] = 1.0f;
+  _n = n;
+}
+
+void Effects::cue(uint8_t effect) {
+  switch (effect) {
+    case FX_CANDLE:                                // a gust: every flame ducks
+      for (uint8_t i = 0; i < _n; ++i) { _b[i] = rndr(0.08f, 0.2f); _c[i] = rndr(0.25f, 0.4f); }
+      break;
+    case FX_LIGHTNING:                             // strike now
+      _phase = 0;
+      _timer = 0;
+      break;
+    case FX_CAULDRON:                              // the whole pot boils over
+      for (uint8_t i = 0; i < _n; ++i) if (_a[i] >= 0) _a[i] = rndr(0.4f, 0.8f);
+      break;
+    case FX_HAUNTED_CHASE:                         // it heard you
+      _dir = -_dir;
+      break;
+    case FX_POLTERGEIST:                           // grab the power
+      _timer = 0;
+      break;
+    case FX_POSSESSED_PUMPKIN:                     // something moves in
+      _phase = 0;
+      _timer = 0;
+      break;
+    default:
+      break;
+  }
+}
+
 // ------------------------------------------------------------------ render
 void Effects::render(uint8_t effect, RGBf *out, uint8_t n, uint32_t dtMs, uint8_t speed, RGBf base) {
   if (n > MAX_PIXELS) n = MAX_PIXELS;
   if (n != _n) relayout(n);
-  if (effect >= FX_COUNT) effect = FX_SOLID;
+  if (effect >= FX_PLAIN_COUNT) effect = FX_SOLID;   // the demo is scripted in Demo.cpp
   if (effect != _lastEffect) {
     resetState();
     _lastEffect = effect;

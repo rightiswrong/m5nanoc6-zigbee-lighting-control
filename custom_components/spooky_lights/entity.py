@@ -35,7 +35,7 @@ class SpookyEntity(Entity):
         return state is not None and state.state != STATE_UNAVAILABLE
 
     async def async_added_to_hass(self) -> None:
-        sources = [e for r in self._source_roles if (e := self.runtime.entity(r))]
+        sources = [e for r in self._source_roles for e in self.runtime.entities_for(r)]
         if sources:
             self.async_on_remove(async_track_state_change_event(self.hass, sources, self._source_changed))
 

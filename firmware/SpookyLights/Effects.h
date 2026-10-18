@@ -26,10 +26,14 @@ enum EffectId : uint8_t {
   FX_POLTERGEIST,
   FX_POSSESSED_PUMPKIN,
   FX_BLOOD_MOON,
+  FX_DEMO_REEL,          // scripted tour of everything (Demo.h) — rendered by Renderer
   FX_COUNT
 };
 
-// Keep in sync with custom_components/spooky_lights/const.py (EFFECTS).
+// Effects the Effects class renders by itself (everything before the demo).
+#define FX_PLAIN_COUNT FX_DEMO_REEL
+
+// Keep in sync with custom_components/spooky_lights/logic.py (EFFECTS).
 extern const char *const EFFECT_NAMES[FX_COUNT];
 
 class Effects {
@@ -39,6 +43,15 @@ public:
   // Called when the pixel count changes: restarts per-pixel state so that a
   // freshly connected module "wakes up" instead of popping in at full blast.
   void relayout(uint8_t n);
+
+  // Adopt a layout of n pixels *without* the wake-up shimmer (used by the demo
+  // when it starts a fresh effect on pixels that are already lit).
+  void prime(uint8_t n);
+
+  // "Do your signature move now": a lightning strike, the pumpkin's
+  // possession, a candle gust, a poltergeist stutter... Effects without one
+  // ignore it. Lets the demo land each effect's best moment on camera.
+  void cue(uint8_t effect);
 
   // Render one frame. `dtMs` real milliseconds since last frame, `speed`
   // 1..100 (50 = normal), `base` is the colour chosen in Home Assistant.

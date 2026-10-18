@@ -3,9 +3,9 @@
     "step": {
       "user": {
         "title": "Summon your Spooky Light",
-        "description": "Pick the NanoC6 you paired with ZHA or Zigbee2MQTT (it reports itself as SpookyLab NanoC6-Spooky). Its entities will be mapped automatically on the next step. Leave empty to map entities by hand.",
+        "description": "Pick your Spooky light — paired through Matter, ZHA or Zigbee2MQTT (it reports itself as SpookyLab NanoC6 / NanoH2). Matter lights are mapped automatically; Zigbee lights are mapped on the next step. Leave empty to map Zigbee entities by hand.",
         "data": {
-          "device_id": "NanoC6 device"
+          "device_id": "Spooky light"
         }
       },
       "entities": {
@@ -20,10 +20,15 @@
           "output_number": "Output routing (endpoint 14)",
           "spotlight_number": "Spotlight pixel (endpoint 15)"
         }
+      },
+      "matter": {
+        "title": "Matter light found",
+        "description": "Found the colour light, {switches} of {effects} effect switches and {extras} of {extras_total} extra controls by their Matter endpoint numbers. Press Submit to haunt it. The raw effect switches and helper dimmers will be hidden from the device page — Spooky Lights shows them as an effect list, speed, output and spotlight controls instead."
       }
     },
     "abort": {
-      "already_configured": "This NanoC6 is already haunted by Spooky Lights."
+      "already_configured": "This NanoC6 is already haunted by Spooky Lights.",
+      "not_spooky_matter": "This Matter device doesn't look like a Spooky light (no colour light on endpoint 1 or no effect switches on endpoints 2–12). Is it running the Spooky Lights Matter firmware?"
     }
   },
   "options": {
@@ -39,15 +44,23 @@
           "output_number": "Output routing (endpoint 14)",
           "spotlight_number": "Spotlight pixel (endpoint 15)"
         }
+      },
+      "rescan": {
+        "title": "Re-scan Matter endpoints",
+        "description": "Map the light's entities again from its Matter endpoints (useful after re-commissioning it)."
       }
     }
   },
   "entity": {
     "light": {
-      "spooky_light": { "name": "Haunted light" }
+      "spooky_light": {
+        "name": "Haunted light"
+      }
     },
     "select": {
-      "effect": { "name": "Effect" },
+      "effect": {
+        "name": "Effect"
+      },
       "output": {
         "name": "Output",
         "state": {
@@ -59,10 +72,17 @@
       }
     },
     "number": {
-      "spotlight": { "name": "Spotlight pixel" }
+      "spotlight": {
+        "name": "Spotlight pixel"
+      },
+      "speed": {
+        "name": "Effect speed"
+      }
     },
     "sensor": {
-      "active_pixels": { "name": "Active pixels" }
+      "active_pixels": {
+        "name": "Active pixels"
+      }
     },
     "event": {
       "chain_change": {
@@ -78,7 +98,9 @@
       }
     },
     "button": {
-      "jump_scare": { "name": "Jump scare" }
+      "jump_scare": {
+        "name": "Jump scare"
+      }
     }
   }
 }

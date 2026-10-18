@@ -3,15 +3,18 @@ name: Release
 # Publishes a GitHub release when either
 #   * main receives a commit whose manifest.json "version" has no v<version> tag
 #     yet (bump the version, push, done — Actions creates the tag), or
-#   * someone pushes a tag like v1.0.0 directly.
-# Each release carries:
-#   nanoc6-spooky-<tag>-factory.bin     single image, flash at 0x0 (easiest)
-#   nanoc6-spooky-<tag>-app.bin         app only, for re-flashing at 0x10000
-#   nanoc6-spooky-<tag>-bootloader.bin  / -partitions.bin / .elf (debugging)
-#   spooky_lights-<tag>.zip             the Home Assistant integration
-#   nanoc6_spooky.mjs                   optional Zigbee2MQTT converter
+#   * someone pushes a tag like v1.1.0 directly.
+# Every release carries firmware for both boards and both radio stacks:
+#   spooky-<board>-<stack>-<tag>-factory.bin   whole-flash image, write at 0x0 (first install /
+#                                              switching Zigbee ⇄ Matter; erases pairing!)
+#   spooky-<board>-<stack>-<tag>-app.bin       app only, write at 0x10000 (updates keep pairing)
+#   spooky-<board>-<stack>-<tag>-bootloader.bin / -partitions.bin / .elf
+#     board = nanoc6 | nanoh2      stack = zigbee | matter
+#   spooky_lights-<tag>.zip        the Home Assistant integration
+#   nanoc6_spooky.mjs              optional Zigbee2MQTT converter
+#   matter_label.py + friends      printable Matter pairing labels (tools-<tag>.zip)
 #   SHA256SUMS.txt
-# Run it manually (workflow_dispatch) to get the same files as a build artifact
+# Run it manually (workflow_dispatch) to get the files as build artifacts
 # without publishing a release.
 
 on:
@@ -24,16 +27,18 @@ permissions:
   contents: write
 
 env:
-  FQBN: esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr
-  SKETCH: firmware/NanoC6_SpookyLights
+  SKETCH: firmware/SpookyLights
 
 jobs:
-  build-and-release:
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.decide.outputs.tag }}
+      publish: ${{ steps.decide.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Decide tag and whether to publish
+        id: decide
         run: |
           manifest=$(python3 -c "import json;print(json.load(open('custom_components/spooky_lights/manifest.json'))['version'])")
           fw=$(sed -n 's/^#define FW_VERSION *"\(.*\)"/\1/p' "$SKETCH/config.h")
@@ -50,90 +55,129 @@ jobs:
           echo "tag=$tag manifest=$manifest firmware=$fw publish=$publish"
           test "${tag#v}" = "$manifest" || { echo "::error::tag $tag != manifest $manifest"; exit 1; }
           test "${tag#v}" = "$fw" || { echo "::error::tag $tag != firmware FW_VERSION $fw"; exit 1; }
-          echo "TAG=$tag" >> "$GITHUB_ENV"
-          echo "PUBLISH=$publish" >> "$GITHUB_ENV"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
-      - name: Firmware host tests
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: git clone --depth 1 https://github.com/cozmo/jsQR "$RUNNER_TEMP/jsQR"
+      - name: Firmware host tests (all variants)
         run: tools/hosttest/run.sh
-
+        env:
+          JSQR: ${{ runner.temp }}/jsQR/dist/jsQR.js
       - name: Integration logic tests
         run: python3 -m unittest discover -s tests
 
+  firmware:
+    needs: [plan, tests]
+    name: Build ${{ matrix.board }}-${{ matrix.stack }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { board: nanoc6, chip: esp32c6, stack: zigbee, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
+          - { board: nanoc6, chip: esp32c6, stack: matter, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app" }
+          - { board: nanoh2, chip: esp32h2, stack: zigbee, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
+          - { board: nanoh2, chip: esp32h2, stack: matter, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=huge_app" }
+    steps:
+      - uses: actions/checkout@v4
       - uses: arduino/setup-arduino-cli@v2
-
       - name: Install the Espressif ESP32 core
         run: |
           arduino-cli config init --overwrite
           arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core update-index
           arduino-cli core install esp32:esp32
-          arduino-cli core list | tee core-version.txt
-
-      - name: Compile for ESP32-C6 (Zigbee router)
-        run: arduino-cli compile --fqbn "$FQBN" --build-path build --warnings default "$SKETCH"
-
+          arduino-cli core list | tee "core-version.txt"
+      - name: Compile
+        run: arduino-cli compile --fqbn "${{ matrix.fqbn }}" --build-path build --warnings default "$SKETCH"
       - name: Package
         run: |
           set -euo pipefail
-          v="$TAG"
+          n="spooky-${{ matrix.board }}-${{ matrix.stack }}-${{ needs.plan.outputs.tag }}"
+          b=build/SpookyLights.ino
           mkdir -p dist
-          ls -la build/*.bin build/*.elf
-          b=build/NanoC6_SpookyLights.ino
-          cp "$b.bin"            "dist/nanoc6-spooky-$v-app.bin"
-          cp "$b.bootloader.bin" "dist/nanoc6-spooky-$v-bootloader.bin"
-          cp "$b.partitions.bin" "dist/nanoc6-spooky-$v-partitions.bin"
-          cp "$b.elf"            "dist/nanoc6-spooky-$v.elf"
+          cp "$b.bin"            "dist/$n-app.bin"
+          cp "$b.bootloader.bin" "dist/$n-bootloader.bin"
+          cp "$b.partitions.bin" "dist/$n-partitions.bin"
+          cp "$b.elf"            "dist/$n.elf"
           if [ -f "$b.merged.bin" ]; then
-            cp "$b.merged.bin" "dist/nanoc6-spooky-$v-factory.bin"
+            cp "$b.merged.bin" "dist/$n-factory.bin"
           else
-            # Older cores don't emit a merged image; build one with esptool.
             pip install --quiet esptool
             boot_app0=$(find ~/.arduino15/packages/esp32/hardware -name boot_app0.bin | head -n1)
-            python3 -m esptool --chip esp32c6 merge_bin -o "dist/nanoc6-spooky-$v-factory.bin" \
+            python3 -m esptool --chip ${{ matrix.chip }} merge_bin -o "dist/$n-factory.bin" \
               0x0 "$b.bootloader.bin" 0x8000 "$b.partitions.bin" 0xe000 "$boot_app0" 0x10000 "$b.bin"
           fi
+          cp core-version.txt "dist/$n-core.txt"
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fw-${{ matrix.board }}-${{ matrix.stack }}
+          path: dist/
+
+  publish:
+    needs: [plan, firmware]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: fw
+          merge-multiple: true
+      - name: Package integration and tools
+        run: |
+          set -euo pipefail
+          v="${{ needs.plan.outputs.tag }}"
+          mkdir -p dist
+          mv fw/*.bin fw/*.elf dist/
+          core=$(cat fw/*-core.txt | sort -u)
           (cd custom_components/spooky_lights && zip -qr "../../dist/spooky_lights-$v.zip" . -x '__pycache__/*')
+          (cd tools && zip -qr "../dist/tools-$v.zip" matter_label.py matter_codes.py vendor -x '__pycache__/*' -x '*/__pycache__/*')
           cp zigbee2mqtt/nanoc6_spooky.mjs dist/
           (cd dist && sha256sum * > SHA256SUMS.txt)
           cat dist/SHA256SUMS.txt
-
-      - name: Release notes
-        run: |
-          v="$TAG"
           {
-            echo "## Flash the NanoC6"
+            echo "## Which file do I flash?"
             echo
-            echo "Easiest: open https://web.esphome.io in Chrome/Edge, connect the NanoC6 over USB-C,"
-            echo "choose **Install** and pick \`nanoc6-spooky-$v-factory.bin\`."
+            echo "| Board | Pairs with | First install / switching stacks (write at 0x0) | Update, keeps pairing (write at 0x10000) |"
+            echo "|---|---|---|---|"
+            for b in nanoc6 nanoh2; do
+              B=$([ $b = nanoc6 ] && echo M5NanoC6 || echo M5NanoH2)
+              echo "| $B | ZHA / Zigbee2MQTT (Zigbee) | \`spooky-$b-zigbee-$v-factory.bin\` | \`spooky-$b-zigbee-$v-app.bin\` |"
+              echo "| $B | Matter over Thread (QR code) | \`spooky-$b-matter-$v-factory.bin\` | \`spooky-$b-matter-$v-app.bin\` |"
+            done
             echo
-            echo "Or with esptool:"
+            echo "Easiest: open https://web.esphome.io in Chrome/Edge, connect the board over USB-C, choose **Install**"
+            echo "and pick the \`-factory.bin\`. A factory image erases the whole flash, including the Zigbee network"
+            echo "or Matter pairing — that's what you want the first time, and when switching between Zigbee and Matter."
             echo
-            echo '```'
-            echo "esptool --chip esp32c6 write_flash 0x0 nanoc6-spooky-$v-factory.bin"
-            echo '```'
-            echo
-            echo "Then pair it with ZHA (Add device) and install the integration via HACS — see the README."
+            echo "Matter builds print a pairing QR code on the serial monitor (115200 baud). Scan it in the Home"
+            echo "Assistant app: **Settings → Devices → Add device → Add Matter device**. Needs a Thread border"
+            echo "router — see [docs/MATTER.md](https://github.com/${{ github.repository }}/blob/$v/docs/MATTER.md)."
             echo
             echo "## Build"
             echo
-            echo "FQBN \`$FQBN\`, Arduino core:"
-            echo
             echo '```'
-            cat core-version.txt
+            echo "$core"
             echo '```'
           } > release-notes.md
-
       - uses: actions/upload-artifact@v4
         with:
-          name: nanoc6-spooky-${{ env.TAG }}
+          name: spooky-lights-${{ needs.plan.outputs.tag }}
           path: dist/
-
       - name: Publish GitHub release
-        if: env.PUBLISH == 'true'
+        if: needs.plan.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG }}
+          tag_name: ${{ needs.plan.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: Spooky Lights ${{ env.TAG }}
+          name: Spooky Lights ${{ needs.plan.outputs.tag }}
           body_path: release-notes.md
           files: dist/*

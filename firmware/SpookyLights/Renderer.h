@@ -8,6 +8,7 @@
 #pragma once
 #include <stdint.h>
 #include "Effects.h"
+#include "Demo.h"
 #include "P9813Chain.h"
 
 enum OutputMode : uint8_t {
@@ -49,10 +50,16 @@ public:
   int lastChainOut(uint8_t i) const { return _chainOut[i].r + _chainOut[i].g + _chainOut[i].b; }
   float lastPowerScale() const { return _powerScale; }
 
+  // Demo Reel: the scene now playing, and whether it just changed (for logs).
+  const DemoReel &demo() const { return _demo; }
+  bool takeDemoSceneChanged() { return _demoActive && _demo.takeSegmentChanged(); }
+
 private:
   P9813Chain *_chain = nullptr;
   OnboardWriter _onboard = nullptr;
   Effects _fx;
+  DemoReel _demo;
+  bool _demoActive = false;
   float _fade = 0;
   RGBf _canvas[MAX_PIXELS];
   RGB8 _chainOut[MAX_CHAIN];

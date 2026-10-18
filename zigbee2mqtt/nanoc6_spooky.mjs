@@ -25,10 +25,10 @@ const analogOut = (name, endpoint, min, max, description) =>
   });
 
 export default {
-  zigbeeModel: ["NanoC6-Spooky"],
+  zigbeeModel: ["NanoC6-Spooky", "NanoH2-Spooky"],
   model: "NanoC6-Spooky",
   vendor: "SpookyLab",
-  description: "NanoC6 Halloween light: onboard WS2812 + hot-pluggable Grove chainable LEDs",
+  description: "M5NanoC6 / NanoH2 Halloween light: onboard WS2812 + hot-pluggable Grove chainable LEDs",
   extend: [
     m.deviceEndpoints({
       endpoints: { light: 10, count: 11, effect: 12, speed: 13, output: 14, spotlight: 15 },
@@ -44,7 +44,7 @@ export default {
       description: "Grove LEDs detected on the chain (live)",
     }),
     analogOut("manual_led_count", "count", 0, 24, "Force a Grove LED count (0 = auto-detect)"),
-    analogOut("effect_index", "effect", 0, 9, "Effect index (see README for names)"),
+    analogOut("effect_index", "effect", 0, 10, "Effect index, 10 = Demo Reel (see README for names)"),
     analogOut("effect_speed", "speed", 1, 100, "Effect speed, 50 = normal"),
     analogOut("output_mode", "output", 0, 3, "0 auto, 1 onboard, 2 grove, 3 both"),
     analogOut("spotlight_pixel", "spotlight", 0, 25, "Pixel that holds the light colour (0 = off)"),

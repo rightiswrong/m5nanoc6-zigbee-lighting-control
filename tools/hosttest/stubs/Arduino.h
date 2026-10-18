@@ -7,6 +7,8 @@
 #include <stdarg.h>
 #include <math.h>
 #include <string.h>
+#include <string>
+#include <functional>
 
 #define HIGH 1
 #define LOW 0
@@ -21,19 +23,48 @@ void delayMicroseconds(uint32_t us);
 void delay(uint32_t ms);
 uint32_t millis();
 void rgbLedWrite(uint8_t pin, uint8_t r, uint8_t g, uint8_t b);
+uint32_t esp_random();
+
+// Minimal Arduino String (what the Matter API returns)
+class String {
+public:
+  String(const char *s = "") : _s(s ? s : "") {}
+  String(const std::string &s) : _s(s) {}
+  const char *c_str() const { return _s.c_str(); }
+  size_t length() const { return _s.size(); }
+private:
+  std::string _s;
+};
 
 struct HostSerial {
   void begin(unsigned long) {}
-  void println(const char *s = "") { if (verbose) printf("%s\n", s); }
+  void println(const char *s = "") {
+    if (verbose) { fputs(s, stdout); fputc('\n', stdout); }
+    capture(s);
+    capture("\n");
+  }
+  void print(const char *s) {
+    if (verbose) fputs(s, stdout);
+    capture(s);
+  }
+  void capture(const char *s) { if (log) log->append(s); }
+  std::string *log = nullptr;      // tests can capture everything printed
   int printf(const char *fmt, ...) {
-    if (!verbose) return 0;
-    va_list ap; va_start(ap, fmt); int n = vprintf(fmt, ap); va_end(ap); return n;
+    char buf[1024];
+    va_list ap; va_start(ap, fmt); int n = vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
+    capture(buf);
+    if (verbose) fputs(buf, stdout);
+    return n;
   }
   bool verbose = true;
 };
 extern HostSerial Serial;
 
-struct HostESP { void restart() { printf("ESP.restart()\n"); } };
+struct HostESP {
+  void restart() { printf("ESP.restart()\n"); ++restarts; }
+  uint64_t getEfuseMac() { return 0x0000C0FFEE31ull; }
+  int restarts = 0;
+};
 extern HostESP ESP;
 
 // FreeRTOS critical sections → no-ops on the host

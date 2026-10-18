@@ -10,7 +10,6 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import SpookyConfigEntry, SpookyRuntime
 from .const import EFFECTS, OUTPUT_MODES, ROLE_EFFECT, ROLE_OUTPUT
 from .entity import SpookyEntity
-from .logic import to_index
 
 
 async def async_setup_entry(
@@ -18,7 +17,7 @@ async def async_setup_entry(
 ) -> None:
     runtime = entry.runtime_data
     entities: list[SelectEntity] = [EffectSelect(runtime)]
-    if runtime.entity(ROLE_OUTPUT):
+    if runtime.has(ROLE_OUTPUT):
         entities.append(OutputSelect(runtime))
     async_add_entities(entities)
 
@@ -36,13 +35,13 @@ class _IndexSelect(SpookyEntity, SelectEntity):
 
     @property
     def current_option(self) -> str | None:
-        src = self.runtime.state(self._role)
-        if src is None:
+        index = self.runtime.read(self._role)
+        if index is None or index >= len(self._attr_options):
             return None
-        return self._attr_options[to_index(src.state, len(self._attr_options) - 1)]
+        return self._attr_options[index]
 
     async def async_select_option(self, option: str) -> None:
-        await self.runtime.async_set_number(self._role, self._attr_options.index(option))
+        await self.runtime.async_write(self._role, self._attr_options.index(option))
 
 
 class EffectSelect(_IndexSelect):

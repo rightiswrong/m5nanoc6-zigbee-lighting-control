@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-FW = ROOT / "firmware" / "NanoC6_SpookyLights"
+FW = ROOT / "firmware" / "SpookyLights"
 _spec = importlib.util.spec_from_file_location(
     "spooky_logic", ROOT / "custom_components" / "spooky_lights" / "logic.py"
 )
@@ -19,6 +20,9 @@ logic = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(logic)
 
 IEEE = "00:12:4b:00:2a:3b:4c:5d"
+sys.path.insert(0, str(ROOT / "tools"))
+import matter_codes  # noqa: E402
+import matter_label  # noqa: E402
 
 
 class FirmwareSyncTests(unittest.TestCase):
@@ -136,6 +140,90 @@ class GuessRoleTests(unittest.TestCase):
     def test_unrelated_entities_ignored(self):
         self.assertIsNone(logic.guess_role("sensor", f"{IEEE}-1-1794", "LQI"))
         self.assertIsNone(logic.guess_role("update", f"{IEEE}-1-25", "Firmware"))
+
+
+MATTER_NODE = "6F1A2B3C4D5E6F70-00000000000000A1-MatterNodeDevice"
+
+
+class MatterMappingTests(unittest.TestCase):
+    """HA Matter unique_ids → Spooky roles, by the firmware's endpoint plan."""
+
+    def test_endpoint_plan_matches_firmware(self):
+        src = (FW / "TransportMatter.cpp").read_text()
+        self.assertIn("MatterOnOffPlugin fxSwitch[FX_COUNT];", src)
+        # speed / output / spotlight / manual follow the effect switches, then the count sensor
+        self.assertEqual(logic.MATTER_EP_SPEED, 2 + len(logic.EFFECTS))
+        self.assertEqual(logic.MATTER_EP_COUNT, logic.MATTER_EP_SPEED + 4)
+        endpoints = {"light", "speedEp", "outputEp", "spotEp", "manualEp", "countEp", "fxSwitch[i]"}
+        order = [m for m in re.findall(r"^\s+([\w\[\]]+)\.begin\(", src, re.M) if m in endpoints]
+        self.assertEqual(order, ["light", "fxSwitch[i]", "speedEp", "outputEp", "spotEp", "manualEp", "countEp"])
+
+    def test_guess_matter_role(self):
+        cases = [
+            ("light", f"{MATTER_NODE}-1-MatterLight-6-0", (logic.ROLE_LIGHT, None)),
+            ("switch", f"{MATTER_NODE}-2-MatterPlug-6-0", (logic.CONF_EFFECT_SWITCHES, 0)),
+            ("switch", f"{MATTER_NODE}-12-MatterPlug-6-0", (logic.CONF_EFFECT_SWITCHES, logic.EFFECT_DEMO)),
+            ("light", f"{MATTER_NODE}-13-MatterLight-6-0", (logic.ROLE_SPEED, None)),
+            ("light", f"{MATTER_NODE}-14-MatterLight-6-0", (logic.ROLE_OUTPUT, None)),
+            ("light", f"{MATTER_NODE}-15-MatterLight-6-0", (logic.ROLE_SPOTLIGHT, None)),
+            ("light", f"{MATTER_NODE}-16-MatterLight-6-0", (logic.ROLE_MANUAL, None)),
+            ("sensor", f"{MATTER_NODE}-17-LightSensor-1024-0", (logic.ROLE_COUNT, None)),
+        ]
+        for domain, uid, want in cases:
+            with self.subTest(uid=uid):
+                self.assertEqual(logic.guess_matter_role(domain, uid), want)
+        # things that aren't ours
+        self.assertIsNone(logic.guess_matter_role("button", f"{MATTER_NODE}-1-IdentifyButton-3-1"))
+        self.assertIsNone(logic.guess_matter_role("sensor", f"{MATTER_NODE}-0-MatterUpdate-40-10"))
+        self.assertIsNone(logic.guess_matter_role("switch", f"{MATTER_NODE}-13-MatterPlug-6-0"))
+        self.assertIsNone(logic.guess_matter_role("light", f"{IEEE}-10"))
+
+    def test_band_constants_match_firmware(self):
+        hdr = (FW / "MatterCodes.h").read_text()
+        consts = {k: int(v) for k, v in re.findall(r"constexpr uint8_t (BAND_\w+) = (\d+);", hdr)}
+        self.assertEqual(consts, {"BAND_OFFSET": logic.BAND_OFFSET, "BAND_STEP": logic.BAND_STEP,
+                                  "BAND_MAX_VALUE": logic.BAND_MAX_VALUE})  # fmt: skip
+
+    def test_values_survive_home_assistant_brightness(self):
+        for v in range(logic.BAND_MAX_VALUE + 1):
+            b = logic.ha_brightness_for_level(logic.band_to_level(v))
+            self.assertEqual(logic.band_from_brightness(v != 0, b), v)
+        for speed in range(1, 101):
+            b = logic.ha_brightness_for_level(logic.speed_to_level(speed))
+            self.assertEqual(logic.speed_from_brightness(b), speed)
+        self.assertEqual(logic.band_from_brightness(False, 200), 0)
+
+    def test_count_from_lux(self):
+        self.assertEqual(logic.count_from_lux("1.0"), 0)
+        self.assertEqual(logic.count_from_lux("4.0"), 3)
+        self.assertEqual(logic.count_from_lux("25.0"), 24)
+        self.assertEqual(logic.count_from_lux("unavailable"), 0)
+
+
+class OnboardingCodeTests(unittest.TestCase):
+    def test_chip_reference_vector(self):
+        p = matter_codes.SetupPayload(0xFFF1, 0x8000, 3840, 20202021)
+        self.assertEqual(matter_codes.encode_qr(p), "MT:Y.K9042C00KA0648G00")
+        self.assertEqual(matter_codes.encode_manual(p), "34970112332")
+        self.assertEqual(matter_codes.decode_qr("MT:Y.K9042C00KA0648G00"), p)
+
+    def test_round_trip_and_passcode_rules(self):
+        for disc, pin in [(0, 1), (0xFFF, 99999998), (2311, 78546665)]:
+            p = matter_codes.SetupPayload(0xFFF1, 0x8005, disc, pin)
+            self.assertEqual(matter_codes.decode_qr(matter_codes.encode_qr(p)), p)
+        for bad in (0, 11111111, 12345678, 87654321, 100000000):
+            self.assertFalse(matter_codes.is_valid_passcode(bad))
+
+    def test_label_from_serial_log(self):
+        log = (
+            "  ==== NanoH2 Spooky Lights — ready to pair (Matter) ====\n"
+            "  QR payload          : MT:6FCJ1MBW17KGJG03P10\n"
+        )
+        lb = matter_label.parse_log(log)
+        self.assertEqual((lb.payload, lb.board, lb.manual), ("MT:6FCJ1MBW17KGJG03P10", "NanoH2", "2181-534-7940"))
+        svg = matter_label.sheet_svg([lb])
+        self.assertIn("2181-534-7940", svg)
+        self.assertTrue(svg.startswith("<svg"))
 
 
 if __name__ == "__main__":

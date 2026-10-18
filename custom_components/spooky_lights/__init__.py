@@ -1,14 +1,17 @@
-"""Spooky Lights — Halloween effects for the NanoC6 Zigbee light.
+"""Spooky Lights — Halloween effects for the M5NanoC6 / M5NanoH2 light.
 
-The NanoC6 firmware exposes plain ZCL clusters (a colour light plus a handful of
-Analog Input/Output endpoints), which ZHA or Zigbee2MQTT turn into raw entities
-like "number: 3". This integration sits on top of those entities and gives you:
+The firmware speaks either Zigbee (paired with ZHA or Zigbee2MQTT) or Matter over
+Thread (paired with Home Assistant's Matter integration). Either way it shows up
+as a handful of raw entities — "number: 3", "Switch (5)", "4.0 lx". This
+integration sits on top of those and gives you:
 
 * a light with a named effect list (usable from any light card / scene),
-* an effect picker and output-routing picker,
+* effect, output and speed controls,
 * a spotlight control whose range follows the number of LEDs actually plugged in,
 * an event entity + bus event when a Grove LED is added or removed,
 * a "jump scare" button.
+
+All transport differences live in SpookyRuntime.read() / async_write().
 """
 
 from __future__ import annotations
@@ -17,8 +20,10 @@ import logging
 from dataclasses import dataclass, field
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import ATTR_ENTITY_ID, STATE_ON
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State, callback
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event
@@ -26,6 +31,7 @@ from homeassistant.helpers.event import async_track_state_change_event
 from .const import (
     CONF_DEVICE_ID,
     DOMAIN,
+    EFFECTS,
     EVENT_CHAIN_CHANGED,
     MANUFACTURER,
     MAX_CHAIN,
@@ -34,16 +40,44 @@ from .const import (
     PLATFORMS,
     ROLE_COUNT,
     ROLE_DOMAINS,
+    ROLE_EFFECT,
+    ROLE_LIGHT,
     ROLE_MANUAL,
     ROLE_OUTPUT,
+    ROLE_SPEED,
     ROLE_SPOTLIGHT,
     signal_chain,
 )
-from .logic import effective_chain_count, to_index, virtual_pixel_count
+from .logic import (
+    CONF_EFFECT_SWITCHES,
+    CONF_TRANSPORT,
+    TRANSPORT_MATTER,
+    TRANSPORT_ZIGBEE,
+    band_from_brightness,
+    band_to_level,
+    count_from_lux,
+    effective_chain_count,
+    ha_brightness_for_level,
+    speed_from_brightness,
+    speed_to_level,
+    to_index,
+    virtual_pixel_count,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 type SpookyConfigEntry = ConfigEntry[SpookyRuntime]
+
+# Upper bound of each integer role (inclusive).
+_ROLE_MAX = {
+    ROLE_EFFECT: len(EFFECTS) - 1,
+    ROLE_SPEED: 100,
+    ROLE_OUTPUT: len(OUTPUT_MODES) - 1,
+    ROLE_SPOTLIGHT: MAX_CHAIN + 1,
+    ROLE_MANUAL: MAX_CHAIN,
+    ROLE_COUNT: MAX_CHAIN,
+}
+_MATTER_BAND_ROLES = (ROLE_OUTPUT, ROLE_SPOTLIGHT, ROLE_MANUAL)
 
 
 @dataclass
@@ -66,37 +100,101 @@ class SpookyRuntime:
     roles: dict[str, str]
     device_info: DeviceInfo
     device_id: str | None
+    transport: str = TRANSPORT_ZIGBEE
+    effect_switches: list[str] = field(default_factory=list)  # Matter: index = effect
     layout: Layout = field(default_factory=Layout)
 
+    # ------------------------------------------------------------ entities
     def entity(self, role: str) -> str | None:
+        if role == ROLE_EFFECT and self.transport == TRANSPORT_MATTER:
+            return self.effect_switches[0] if self.effect_switches else None
         return self.roles.get(role) or None
+
+    def entities_for(self, role: str) -> list[str]:
+        """Every source entity whose state feeds `role` (for change tracking)."""
+        if role == ROLE_EFFECT and self.transport == TRANSPORT_MATTER:
+            return [e for e in self.effect_switches if e]
+        entity_id = self.roles.get(role)
+        return [entity_id] if entity_id else []
+
+    def has(self, role: str) -> bool:
+        return bool(self.entities_for(role))
 
     def state(self, role: str) -> State | None:
         entity_id = self.entity(role)
         return self.hass.states.get(entity_id) if entity_id else None
 
-    def compute_layout(self) -> Layout:
-        detected_state = self.state(ROLE_COUNT)
-        manual_state = self.state(ROLE_MANUAL)
-        output_state = self.state(ROLE_OUTPUT)
-        detected = to_index(detected_state.state if detected_state else None, MAX_CHAIN)
-        manual = to_index(manual_state.state if manual_state else None, MAX_CHAIN)
-        output = to_index(output_state.state if output_state else None, len(OUTPUT_MODES) - 1)
-        chain = effective_chain_count(detected, manual)
-        return Layout(detected, manual, chain, output, virtual_pixel_count(chain, output))
+    # ------------------------------------------------------- read / write
+    def read(self, role: str) -> int | None:
+        """Current integer value of a firmware setting, whatever the transport."""
+        upper = _ROLE_MAX[role]
+        if self.transport != TRANSPORT_MATTER:
+            st = self.state(role)
+            if st is None:
+                return None
+            return to_index(st.state, upper, default=50 if role == ROLE_SPEED else 0)
+        if role == ROLE_EFFECT:
+            for index, entity_id in enumerate(self.effect_switches):
+                st = self.hass.states.get(entity_id) if entity_id else None
+                if st is not None and st.state == STATE_ON:
+                    return index
+            return None
+        st = self.state(role)
+        if st is None:
+            return None
+        if role == ROLE_COUNT:
+            return count_from_lux(st.state)
+        brightness = st.attributes.get("brightness")
+        if role == ROLE_SPEED:
+            return speed_from_brightness(brightness)
+        return min(upper, band_from_brightness(st.state == STATE_ON, brightness))
 
-    async def async_set_number(self, role: str, value: float) -> None:
-        """Write a value to one of the firmware's Analog Output endpoints."""
+    async def async_write(self, role: str, value: int) -> None:
+        """Set a firmware setting, whatever the transport."""
+        value = max(0, min(_ROLE_MAX[role], int(value)))
+        if self.transport != TRANSPORT_MATTER:
+            if entity_id := self.entity(role):
+                await self.hass.services.async_call(
+                    "number", "set_value", {ATTR_ENTITY_ID: entity_id, "value": value}, blocking=True
+                )
+            return
+        if role == ROLE_EFFECT:
+            if value < len(self.effect_switches) and self.effect_switches[value]:
+                await self.hass.services.async_call(
+                    "switch", "turn_on", {ATTR_ENTITY_ID: self.effect_switches[value]}, blocking=True
+                )
+            return
         entity_id = self.entity(role)
         if not entity_id:
             return
+        if role == ROLE_SPEED:
+            level = speed_to_level(max(1, value))
+        elif value == 0:
+            await self.hass.services.async_call("light", "turn_off", {ATTR_ENTITY_ID: entity_id}, blocking=True)
+            return
+        else:
+            level = band_to_level(value)
         await self.hass.services.async_call(
-            "number", "set_value", {"entity_id": entity_id, "value": value}, blocking=True
+            "light", "turn_on", {ATTR_ENTITY_ID: entity_id, "brightness": ha_brightness_for_level(level)}, blocking=True
         )
+
+    def compute_layout(self) -> Layout:
+        detected = self.read(ROLE_COUNT) or 0
+        manual = self.read(ROLE_MANUAL) or 0
+        output = self.read(ROLE_OUTPUT) or 0
+        chain = effective_chain_count(detected, manual)
+        return Layout(detected, manual, chain, output, virtual_pixel_count(chain, output))
+
+    def matter_helper_entities(self) -> list[str]:
+        """Raw Matter entities this integration presents better (hidden from the device page)."""
+        if self.transport != TRANSPORT_MATTER:
+            return []
+        roles = (ROLE_SPEED, ROLE_OUTPUT, ROLE_SPOTLIGHT, ROLE_MANUAL, ROLE_COUNT)
+        return [e for e in (*self.effect_switches, *(self.roles.get(r) for r in roles)) if e]
 
 
 def _build_device_info(hass: HomeAssistant, entry: ConfigEntry) -> tuple[DeviceInfo, str | None]:
-    """Attach our entities to the existing ZHA/Z2M device when we know it."""
+    """Attach our entities to the existing ZHA/Z2M/Matter device when we know it."""
     device_id = entry.data.get(CONF_DEVICE_ID)
     if device_id and (device := dr.async_get(hass).async_get(device_id)):
         if device.identifiers:
@@ -104,12 +202,7 @@ def _build_device_info(hass: HomeAssistant, entry: ConfigEntry) -> tuple[DeviceI
         if device.connections:
             return DeviceInfo(connections=set(device.connections)), device_id
     return (
-        DeviceInfo(
-            identifiers={(DOMAIN, entry.entry_id)},
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            name=entry.title,
-        ),
+        DeviceInfo(identifiers={(DOMAIN, entry.entry_id)}, manufacturer=MANUFACTURER, model=MODEL, name=entry.title),
         None,
     )
 
@@ -120,13 +213,40 @@ def roles_from_entry(entry: ConfigEntry) -> dict[str, str]:
     return {role: merged[role] for role in ROLE_DOMAINS if merged.get(role)}
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: SpookyConfigEntry) -> bool:
+def runtime_from_entry(hass: HomeAssistant, entry: ConfigEntry) -> SpookyRuntime:
+    merged = {**entry.data, **entry.options}
     device_info, device_id = _build_device_info(hass, entry)
-    runtime = SpookyRuntime(hass, entry.entry_id, roles_from_entry(entry), device_info, device_id)
+    return SpookyRuntime(
+        hass,
+        entry.entry_id,
+        roles_from_entry(entry),
+        device_info,
+        device_id,
+        transport=merged.get(CONF_TRANSPORT, TRANSPORT_ZIGBEE),
+        effect_switches=list(merged.get(CONF_EFFECT_SWITCHES) or []),
+    )
+
+
+@callback
+def _set_hidden(hass: HomeAssistant, entity_ids: list[str], hide: bool) -> None:
+    registry = er.async_get(hass)
+    for entity_id in entity_ids:
+        entry = registry.async_get(entity_id)
+        if entry is None:
+            continue
+        if hide and entry.hidden_by is None:
+            registry.async_update_entity(entity_id, hidden_by=er.RegistryEntryHider.INTEGRATION)
+        elif not hide and entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
+            registry.async_update_entity(entity_id, hidden_by=None)
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: SpookyConfigEntry) -> bool:
+    runtime = runtime_from_entry(hass, entry)
     runtime.layout = runtime.compute_layout()
     entry.runtime_data = runtime
+    _set_hidden(hass, runtime.matter_helper_entities(), True)
 
-    watched = [e for e in (runtime.entity(ROLE_COUNT), runtime.entity(ROLE_MANUAL), runtime.entity(ROLE_OUTPUT)) if e]
+    watched = [e for r in (ROLE_COUNT, ROLE_MANUAL, ROLE_OUTPUT) for e in runtime.entities_for(r)]
 
     @callback
     def _layout_changed(event: Event[EventStateChangedData]) -> None:
@@ -148,9 +268,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: SpookyConfigEntry) -> bo
 
         # Keep parameters valid for the new string: a spotlight on a pixel that
         # no longer exists is switched off rather than silently ignored.
-        spot = runtime.state(ROLE_SPOTLIGHT)
-        if spot and to_index(spot.state, MAX_CHAIN + 1) > new.pixels:
-            hass.async_create_task(runtime.async_set_number(ROLE_SPOTLIGHT, 0))
+        spot = runtime.read(ROLE_SPOTLIGHT)
+        if spot is not None and spot > new.pixels:
+            hass.async_create_task(runtime.async_write(ROLE_SPOTLIGHT, 0))
 
     if watched:
         entry.async_on_unload(async_track_state_change_event(hass, watched, _layout_changed))
@@ -166,3 +286,11 @@ async def _async_reload(hass: HomeAssistant, entry: SpookyConfigEntry) -> None:
 
 async def async_unload_entry(hass: HomeAssistant, entry: SpookyConfigEntry) -> bool:
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Removing Spooky Lights shows the raw Matter entities again."""
+    _set_hidden(hass, runtime_from_entry(hass, entry).matter_helper_entities(), False)
+
+
+__all__ = ["ROLE_LIGHT", "Layout", "SpookyConfigEntry", "SpookyRuntime"]

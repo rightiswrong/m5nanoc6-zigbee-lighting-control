@@ -1,5 +1,5 @@
 {
-  "name": "Spooky Lights (NanoC6)",
+  "name": "Spooky Lights (M5NanoC6 / NanoH2)",
   "homeassistant": "2025.10.0",
   "render_readme": true
 }

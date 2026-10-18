@@ -22,7 +22,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import SpookyConfigEntry
 from .const import EFFECTS, ROLE_EFFECT, ROLE_LIGHT
 from .entity import SpookyEntity
-from .logic import effect_index, effect_name, to_index
+from .logic import effect_index, effect_name
 
 _PASSTHROUGH = (ATTR_BRIGHTNESS, ATTR_HS_COLOR, ATTR_RGB_COLOR, ATTR_XY_COLOR, ATTR_TRANSITION)
 
@@ -70,14 +70,12 @@ class SpookyLight(SpookyEntity, LightEntity):
 
     @property
     def effect(self) -> str | None:
-        src = self.runtime.state(ROLE_EFFECT)
-        if src is None:
-            return None
-        return effect_name(to_index(src.state, len(EFFECTS) - 1))
+        index = self.runtime.read(ROLE_EFFECT)
+        return None if index is None else effect_name(index)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         if (name := kwargs.get(ATTR_EFFECT)) is not None and (idx := effect_index(name)) is not None:
-            await self.runtime.async_set_number(ROLE_EFFECT, idx)
+            await self.runtime.async_write(ROLE_EFFECT, idx)
         data: dict[str, Any] = {ATTR_ENTITY_ID: self.runtime.entity(ROLE_LIGHT)}
         data.update({k: v for k, v in kwargs.items() if k in _PASSTHROUGH})
         await self.hass.services.async_call("light", "turn_on", data, blocking=True)

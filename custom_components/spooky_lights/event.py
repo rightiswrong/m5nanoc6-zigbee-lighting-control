@@ -17,7 +17,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: SpookyConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
     runtime = entry.runtime_data
-    if runtime.entity(ROLE_COUNT):
+    if runtime.has(ROLE_COUNT):
         async_add_entities([ChainChangeEvent(runtime)])
 
 

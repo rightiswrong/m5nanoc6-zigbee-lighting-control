@@ -1,0 +1,9 @@
+line-length = 120
+target-version = "py313"
+extend-exclude = ["tools/vendor"]
+
+[lint]
+select = ["E", "F", "W", "B", "UP", "I"]
+
+[lint.per-file-ignores]
+"tools/matter_label.py" = ["E501"]   # SVG template lines

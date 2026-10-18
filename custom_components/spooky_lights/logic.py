@@ -22,8 +22,10 @@ EFFECTS: tuple[str, ...] = (
     "Poltergeist",
     "Possessed Pumpkin",
     "Blood Moon",
+    "Demo Reel",
 )
 EFFECT_LIGHTNING = EFFECTS.index("Lightning Storm")
+EFFECT_DEMO = EFFECTS.index("Demo Reel")
 
 # Index == the value written to the firmware's "Output" analog output (endpoint 14).
 OUTPUT_MODES: tuple[str, ...] = ("auto", "onboard", "grove", "both")
@@ -154,6 +156,105 @@ def guess_role(domain: str, unique_id: str, *names: str | None) -> str | None:
         if len(matches) == 1:
             return matches[0]
     return None
+
+
+# --------------------------------------------------------------------- Matter
+TRANSPORT_ZIGBEE = "zigbee"
+TRANSPORT_MATTER = "matter"
+CONF_TRANSPORT = "transport"
+CONF_EFFECT_SWITCHES = "effect_switches"
+
+# Endpoint plan of the Matter firmware (firmware/SpookyLights/TransportMatter.cpp):
+# 1 light · 2… one switch per effect · then speed, output, spotlight, manual
+# count (dimmable plug-ins) · then the LED-count light sensor.
+MATTER_EP_LIGHT = 1
+MATTER_EP_FIRST_EFFECT = 2
+MATTER_EP_SPEED = MATTER_EP_FIRST_EFFECT + len(EFFECTS)
+MATTER_EP_OUTPUT = MATTER_EP_SPEED + 1
+MATTER_EP_SPOTLIGHT = MATTER_EP_SPEED + 2
+MATTER_EP_MANUAL = MATTER_EP_SPEED + 3
+MATTER_EP_COUNT = MATTER_EP_SPEED + 4
+
+MATTER_ROLE_BY_EP: dict[int, tuple[str, str]] = {  # endpoint → (role, HA domain)
+    MATTER_EP_LIGHT: (ROLE_LIGHT, "light"),
+    MATTER_EP_SPEED: (ROLE_SPEED, "light"),
+    MATTER_EP_OUTPUT: (ROLE_OUTPUT, "light"),
+    MATTER_EP_SPOTLIGHT: (ROLE_SPOTLIGHT, "light"),
+    MATTER_EP_MANUAL: (ROLE_MANUAL, "light"),
+    MATTER_EP_COUNT: (ROLE_COUNT, "sensor"),
+}
+
+# HA Matter unique_id: "<fabric>-<node>-MatterNodeDevice-<endpoint>-<key>-<cluster>-<attribute>"
+_MATTER_EP = re.compile(r"-MatterNodeDevice-(\d+)-")
+
+# Value bands carried on dimmer levels — must equal firmware MatterCodes.h.
+BAND_OFFSET = 10
+BAND_STEP = 9
+BAND_MAX_VALUE = 26
+
+
+def matter_endpoint(unique_id: str) -> int | None:
+    m = _MATTER_EP.search(unique_id)
+    return int(m.group(1)) if m else None
+
+
+def guess_matter_role(domain: str, unique_id: str) -> tuple[str, int | None] | None:
+    """Map one HA Matter entity to (role, effect_index); None if it isn't one of ours."""
+    endpoint = matter_endpoint(unique_id)
+    if endpoint is None:
+        return None
+    if domain == "switch" and MATTER_EP_FIRST_EFFECT <= endpoint < MATTER_EP_SPEED:
+        return CONF_EFFECT_SWITCHES, endpoint - MATTER_EP_FIRST_EFFECT
+    role = MATTER_ROLE_BY_EP.get(endpoint)
+    if role and role[1] == domain:
+        if role[0] == ROLE_COUNT and "-LightSensor-" not in unique_id:
+            return None
+        return role[0], None
+    return None
+
+
+def band_to_level(value: int) -> int:
+    return BAND_OFFSET + BAND_STEP * max(0, min(BAND_MAX_VALUE, value))
+
+
+def level_to_band(level: int) -> int:
+    if level <= BAND_OFFSET:
+        return 0
+    return min(BAND_MAX_VALUE, (level - BAND_OFFSET + BAND_STEP // 2) // BAND_STEP)
+
+
+def speed_to_level(speed: int) -> int:
+    speed = max(1, min(100, speed))
+    return max(1, (speed * 254 + 50) // 100)
+
+
+def level_to_speed(level: int) -> int:
+    return max(1, min(100, (level * 100 + 127) // 254))
+
+
+# Home Assistant's Matter light maps LevelControl 1..254 ↔ brightness 0..255 linearly.
+def ha_brightness_for_level(level: int) -> int:
+    return max(0, min(255, round((level - 1) * 255 / 253)))
+
+
+def ha_level_for_brightness(brightness: int) -> int:
+    return round(brightness * 253 / 255 + 1)
+
+
+def band_from_brightness(on: bool, brightness: int | None) -> int:
+    if not on or brightness is None:
+        return 0
+    return level_to_band(ha_level_for_brightness(brightness))
+
+
+def speed_from_brightness(brightness: int | None) -> int | None:
+    return None if brightness is None else level_to_speed(ha_level_for_brightness(brightness))
+
+
+def count_from_lux(state: str | None) -> int:
+    """The firmware reports N detected LEDs as N + 1 lux."""
+    value = to_number(state)
+    return 0 if value is None else max(0, min(MAX_CHAIN, round(value) - 1))
 
 
 def chain_change_kind(previous: int, current: int) -> str | None:

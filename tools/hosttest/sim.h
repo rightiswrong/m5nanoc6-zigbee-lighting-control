@@ -7,8 +7,8 @@
 #include <vector>
 #include <deque>
 #include <assert.h>
-#include "../../firmware/NanoC6_SpookyLights/config.h"
-#include "../../firmware/NanoC6_SpookyLights/P9813Chain.h"
+#include "../../firmware/SpookyLights/config.h"
+#include "../../firmware/SpookyLights/P9813Chain.h"
 
 enum class ChipModel { Consume, ShiftRegister };
 
@@ -69,6 +69,13 @@ struct Sim {
   RGB8 onboard{0, 0, 0};
   int onboardWrites = 0;
   uint8_t buttonLevel = HIGH;
+  // Which MCU pins the Grove yellow (CI) and white (DI + sense) wires really
+  // reach. wireSwapped(true) models a board documented the other way round.
+  uint8_t physClk = PIN_GROVE_CLK, physData = PIN_GROVE_DATA;
+  void wireSwapped(bool sw) {
+    physClk = sw ? PIN_GROVE_DATA : PIN_GROVE_CLK;
+    physData = sw ? PIN_GROVE_CLK : PIN_GROVE_DATA;
+  }
 
   void setChain(int n, ChipModel m = ChipModel::Consume, int latency = 1) {
     // Plugging/unplugging: keep existing chips' state, add fresh ones at the end
@@ -100,18 +107,23 @@ extern Sim sim;
 Sim sim;
 HostSerial Serial;
 HostESP ESP;
-void pinMode(uint8_t pin, uint8_t mode) { if (pin == PIN_GROVE_DATA) sim.dataMode = mode; }
+void pinMode(uint8_t pin, uint8_t mode) { if (pin == sim.physData) sim.dataMode = mode; }
 void digitalWrite(uint8_t pin, uint8_t val) {
-  if (pin == PIN_GROVE_DATA) sim.dataLevel = val;
-  if (pin == PIN_GROVE_CLK) {
+  if (pin == sim.physData) sim.dataLevel = val;
+  if (pin == sim.physClk) {
     if (val && !sim.clkLevel) sim.risingEdge();
     sim.clkLevel = val;
   }
 }
 int digitalRead(uint8_t pin) {
-  if (pin == PIN_GROVE_DATA) return sim.senseLevel();
+  if (pin == sim.physData) return sim.senseLevel();
   if (pin == PIN_BUTTON) return sim.buttonLevel;
-  return LOW;
+  return LOW;                       // a released CI line reads low
+}
+uint32_t esp_random() {             // deterministic for tests
+  static uint32_t x = 0x5EED1234u;
+  x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+  return x;
 }
 void delayMicroseconds(uint32_t us) { sim.nowUs += us; }
 void delay(uint32_t ms) { sim.nowMs += ms; }

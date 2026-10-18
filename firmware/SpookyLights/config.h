@@ -1,28 +1,29 @@
 // =============================================================================
-//  NanoC6 Spooky Lights — hardware & behaviour configuration
-//  Target: M5Stack M5NanoC6 (ESP32-C6), Arduino-ESP32 core 3.x
+//  Spooky Lights — behaviour configuration
+//  Targets: M5Stack M5NanoC6 (ESP32-C6) and M5NanoH2 (ESP32-H2),
+//           Arduino-ESP32 core 3.3.12 or newer
 // =============================================================================
 #pragma once
 #include <stdint.h>
+#include "board.h"
 
 // Keep in sync with custom_components/spooky_lights/manifest.json "version"
 // (the release workflow refuses to publish if they differ from the tag).
-#define FW_VERSION "1.0.1"
+#define FW_VERSION "1.1.0"
 
-// ---------------------------------------------------------------- Board pins
-// M5NanoC6 pin map (M5Stack docs / ESPHome devices DB):
-//   G1  Grove yellow wire (labelled SCL)  -> P9813 CI  (clock in)
-//   G2  Grove white  wire (labelled SDA)  -> P9813 DI  (data in) + loopback sense
-//   G7  blue status LED
-//   G9  user button (active low, also the BOOT strap — fine to read at runtime)
-//   G19 power switch for the onboard WS2812 (must be HIGH or the LED stays dark)
-//   G20 onboard WS2812 data
-#define PIN_GROVE_CLK        1
-#define PIN_GROVE_DATA       2
-#define PIN_STATUS_LED       7
-#define PIN_BUTTON           9
-#define PIN_RGB_POWER        19
-#define PIN_RGB_DATA         20
+// ------------------------------------------------------------ Radio stack
+// Chosen with the Arduino IDE "Zigbee Mode" menu — no code changes needed:
+//   Zigbee ZCZR (coordinator/router) → Zigbee router, pairs with ZHA / Z2M
+//   Disabled                         → Matter over Thread (QR-code pairing)
+#if defined(ZIGBEE_MODE_ZCZR)
+#define SPOOKY_ZIGBEE 1
+#define SPOOKY_MATTER 0
+#elif defined(ZIGBEE_MODE_ED)
+#error "Use Tools > Zigbee mode > 'Zigbee ZCZR (coordinator/router)' (or 'Disabled' for Matter)"
+#else
+#define SPOOKY_ZIGBEE 0
+#define SPOOKY_MATTER 1
+#endif
 
 // ---------------------------------------------------------- Grove P9813 chain
 // Hard upper bound on chained modules. Each module can draw ~60 mA at full
@@ -44,6 +45,11 @@
 //   0 = OFF      : no return wire; use the "manual count" control from Home
 //                  Assistant instead.
 #define CHAIN_DETECT_LOOPBACK 1
+
+// With loopback detection, a boot scan that finds nothing tries the Grove pins
+// the other way round (CLK on white, DATA on yellow) and keeps whichever
+// orientation answers. Covers boards documented with the pair swapped.
+#define GROVE_AUTO_ORIENT 1
 
 // Probe the chain this often (ms). Each probe also refreshes the LEDs, so it
 // never causes a visible blink.
@@ -67,7 +73,7 @@
 
 // ------------------------------------------------------------------- Zigbee
 #define ZB_MANUFACTURER      "SpookyLab"
-#define ZB_MODEL             "NanoC6-Spooky"
+#define ZB_MODEL             BOARD_NAME "-Spooky"     // NanoC6-Spooky / NanoH2-Spooky
 
 #define EP_LIGHT             10   // Color dimmable light (on/off, level, color)
 #define EP_COUNT             11   // Analog In: detected LEDs / Analog Out: manual count
@@ -75,6 +81,24 @@
 #define EP_SPEED             13   // Analog Out: effect speed 1..100
 #define EP_OUTPUT            14   // Analog Out: output routing mode
 #define EP_SPOTLIGHT         15   // Analog Out: spotlight pixel (0 = off)
+
+// ------------------------------------------------------------------- Matter
+// Matter endpoints are numbered by creation order (1 = light, see
+// TransportMatter.cpp). The Home Assistant integration maps them by number.
+//
+// Network: Thread by default. On the ESP32-C6 (which also has Wi-Fi) set this
+// to 1 for Matter over Wi-Fi instead. The ESP32-H2 is Thread-only.
+#define MATTER_USE_WIFI      0
+
+// Every device generates its own random setup passcode and discriminator on
+// first boot and keeps them in flash (they survive re-pairing and firmware
+// updates; "Erase All Flash" makes new ones). The QR code is printed on the
+// serial monitor at boot and every MATTER_QR_REPEAT_MS until commissioned.
+#define MATTER_QR_REPEAT_MS  60000
+
+// Serial QR style: 1 = for dark-background terminals (most terminals,
+// Arduino IDE dark theme), 0 = for light-background serial monitors.
+#define MATTER_QR_DARK_TERMINAL 1
 
 // ------------------------------------------------------------------ Button
 #define BUTTON_FACTORY_RESET_MS 5000
