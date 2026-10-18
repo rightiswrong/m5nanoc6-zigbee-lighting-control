@@ -1,8 +1,13 @@
 # Matter over Thread
 
 The same firmware that speaks Zigbee can be built as a **Matter-over-Thread**
-light instead. The **M5NanoC6** (ESP32-C6) and the **M5NanoH2** (ESP32-H2) both
-have the radio for it. You pair it by scanning a QR code, and it works with
+light instead, on the **M5NanoC6** (ESP32-C6).
+
+> **NanoH2: Zigbee only.** The ESP32-H2 has the radio for Thread, but not the
+> RAM for Arduino's Matter library. Starting Matter with Bluetooth pairing ran it
+> out of heap at boot (versions 1.1.0 and 1.1.1). From 1.1.2 a NanoH2 Matter
+> build is refused at compile time, and releases ship only its Zigbee image. Use
+> a NanoC6 for Matter. You pair it by scanning a QR code, and it works with
 Home Assistant, Apple Home, Google Home and SmartThings.
 
 > **Zigbee or Matter, not both at once.** Both protocols use the same
@@ -28,15 +33,15 @@ Home Assistant, Apple Home, Google Home and SmartThings.
 ## 1. Flash the Matter build
 
 From the [latest release](../../../releases/latest), take
-`spooky-nanoc6-matter-<version>-factory.bin` (or `nanoh2`). Flash it at `0x0`
+`spooky-nanoc6-matter-<version>-factory.bin`. Flash it at `0x0`
 with [ESPHome Web](https://web.esphome.io) or
-`esptool --chip esp32c6 write_flash 0x0 <file>` (`esp32h2` for the NanoH2).
+`esptool --chip esp32c6 write_flash 0x0 <file>`.
 
 The factory image erases the whole flash, which is what you want the first time.
 For later updates use the `-app.bin` at `0x10000`. It keeps the pairing.
 
 **Building it yourself (Arduino IDE)**, esp32 by Espressif **3.3.12 or newer**:
-Board *ESP32C6 Dev Module* / *ESP32H2 Dev Module* · USB CDC On Boot *Enabled* ·
+Board *ESP32C6 Dev Module* · USB CDC On Boot *Enabled* ·
 Partition Scheme **Huge APP (3MB No OTA/1MB SPIFFS)** · Zigbee mode **Disabled** ·
 Erase All Flash Before Sketch Upload **Enabled** (first time).
 
@@ -91,7 +96,7 @@ device** → scan the code. Keep the phone within a few metres. The status LED
 blinks until the light is paired and online, then goes dark, and the serial log
 says `commissioned — welcome to the haunted house`.
 
-It appears as **NanoC6 Spooky** (or **NanoH2 Spooky**), made by SpookyLab.
+It appears as **NanoC6 Spooky**, made by SpookyLab.
 
 ## 4. Add the Spooky Lights integration
 
@@ -111,8 +116,9 @@ Without the integration, everything still works. You get:
 
 ## What the light exposes over Matter
 
-Six endpoints. The ESP32-H2's Matter library allows seven including the root
-endpoint, and each one costs memory, so the whole show is packed into six.
+Six endpoints. Each one costs memory, and the most restrictive Arduino Matter
+targets allow only seven including the root, so the whole show is packed into
+six.
 
 | Endpoint | Matter device type | Meaning |
 |---|---|---|
@@ -140,9 +146,8 @@ levels.
 | 46 | 18 % | Witch's Cauldron | | 100 | 39 % | Demo Reel |
 | 55 | 22 % | Tell-Tale Heart | | | | |
 
-> **Updating from 1.1.0?** That version's Matter layout used 17 endpoints. The
-> NanoH2 can't create that many (it crashed at boot), and the endpoint numbers
-> have changed. Flash the 1.1.1 **`-factory.bin`**, remove the old device from
+> **Updating from 1.1.0?** That version's Matter layout used 17 endpoints, and
+> the endpoint numbers have changed since. Flash the 1.1.1 **`-factory.bin`**, remove the old device from
 > Home Assistant, pair again, and run *Spooky Lights → Configure* to re-scan.
 
 ## Troubleshooting
@@ -154,6 +159,6 @@ levels.
 | Paired, then "unavailable" | IPv6 or mDNS blocked between HA and the border router (VLANs, client isolation, multicast filtering). |
 | Re-flashed, but it still thinks it's paired | Flashing an `-app.bin` keeps the pairing. Use the `-factory.bin`, or hold the button 5 s. |
 | Serial says *this build has no Matter-over-Thread* | The Arduino core is too old. Use esp32 by Espressif ≥ 3.3.12. |
-| Serial says *ERROR: only N of 6 endpoints could be created*, or `Dynamic endpoint count cannot be greater than …` | Something added endpoints beyond the chip's limit (7 including root on the ESP32-H2). Undo the change, or send the log. |
-| Crash with `Failed to allocate memory` | Out of RAM. The serial log prints *free heap* before and after start-up; please send it along. |
+| Serial says *ERROR: only N of 6 endpoints could be created*, or `Dynamic endpoint count cannot be greater than …` | Something added endpoints beyond the library's limit. Undo the change, or send the log. |
+| Crash with `Failed to allocate memory`, or `abort()` at start-up | Out of RAM. On a NanoH2 that's expected (use Zigbee). On a NanoC6, send the serial log: it prints *free heap* before and after start-up. |
 | I want Matter over Wi-Fi (NanoC6 only) | Set `MATTER_USE_WIFI 1` in `config.h` and rebuild. The phone then hands over your Wi-Fi credentials instead. |

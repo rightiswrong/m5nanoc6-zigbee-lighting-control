@@ -1,13 +1,12 @@
 // =============================================================================
-//  Matter transport — Matter over Thread (ESP32-C6 and ESP32-H2), commissioned
+//  Matter transport — Matter over Thread (ESP32-C6 / NanoC6), commissioned
 //  over Bluetooth LE with a QR code. Works with Home Assistant, Apple Home,
 //  Google Home and SmartThings; the Spooky Lights HA integration adds the
 //  named effect list, spotlight slider and chain events on top.
 //
 //  Endpoints are numbered in creation order (the HA integration relies on it).
-//  The ESP32-H2 Matter library allows only 7 endpoints *including the root*
-//  (CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=7; the C6 allows 32), and
-//  every endpoint costs heap, so the whole show fits in six:
+//  Six of them: compact enough for any Arduino Matter target (the most
+//  restrictive allow 7 including the root) and light on heap:
 //     1  Extended colour light ..... on/off, brightness, colour
 //     2  Dimmable plug-in unit ..... effect   (off = Solid, else banded level)
 //     3  Dimmable plug-in unit ..... effect speed (level ≈ speed %)
@@ -37,7 +36,7 @@ namespace {
 MatterColorLight light;
 MatterDimmablePlugin effectEp, speedEp, spotEp, setupEp;
 MatterLightSensor countEp;
-constexpr uint8_t MATTER_APP_ENDPOINTS = 6;   // + root = 7, the ESP32-H2 library's limit
+constexpr uint8_t MATTER_APP_ENDPOINTS = 6;   // + root = 7, the smallest Arduino Matter limit
 static_assert(MAX_CHAIN < mcodes::SETUP_STRIDE, "manual count must fit the setup packing");
 static_assert(FX_COUNT - 1 <= mcodes::BAND_MAX_VALUE, "effects must fit the band");
 

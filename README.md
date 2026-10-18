@@ -7,9 +7,10 @@ board's own RGB LED and/or a string of **Grove Chainable RGB LED v2.0** modules,
 every effect to fit.
 
 Pick your radio when you flash it:
-* **Zigbee:** a Zigbee router for ZHA or Zigbee2MQTT.
-* **Matter over Thread:** pair it by **scanning a QR code**. Works with Home
-  Assistant, Apple Home, Google Home and SmartThings.
+* **Zigbee** (NanoC6 or NanoH2): a Zigbee router for ZHA or Zigbee2MQTT.
+* **Matter over Thread** (NanoC6): pair it by **scanning a QR code**. Works with
+  Home Assistant, Apple Home, Google Home and SmartThings. The NanoH2 has too
+  little RAM for Arduino's Matter library, so it's Zigbee-only.
 
 A companion **Home Assistant integration (HACS)** turns either into a proper
 light, with a named effect list, a spotlight slider whose range tracks the string
@@ -25,7 +26,7 @@ length, a "LED added/removed" event, and a jump-scare button.
 
 | Path | What |
 |---|---|
-| `firmware/SpookyLights/` | One Arduino sketch for both boards and both radio stacks |
+| `firmware/SpookyLights/` | One Arduino sketch for both boards: Zigbee on either, Matter on the NanoC6 |
 | `custom_components/spooky_lights/` | Home Assistant integration (installed by HACS) |
 | `tools/matter_label.py` | Printable Matter pairing labels (QR + manual code) from the serial output |
 | `zigbee2mqtt/nanoc6_spooky.mjs` | Optional external converter if you use Zigbee2MQTT instead of ZHA |
@@ -34,7 +35,7 @@ length, a "LED added/removed" event, and a jump-scare button.
 | `docs/PUBLISHING.md` | How to get the integration into the HACS default list |
 | `tools/hosttest/` | Firmware compiled on a PC against a bit-level P9813 chain simulator and Zigbee / Matter stand-ins |
 | `tests/` | Integration logic tests + firmware ⇄ integration sync checks |
-| `.github/workflows/` | Validation on every push; `release.yml` builds all four firmware images and publishes a release whenever the version in `manifest.json` is bumped |
+| `.github/workflows/` | Validation on every push; `release.yml` builds all three firmware images and publishes a release whenever the version in `manifest.json` is bumped |
 
 ## The effects
 
@@ -92,18 +93,18 @@ everything still works: set the count by hand from Home Assistant, and set
 ### 2. Flash the firmware
 
 **Option A: prebuilt binary (fastest).** Every [release](https://github.com/rightiswrong/m5nanoc6-zigbee-lighting-control/releases/latest)
-has four images:
+has three images:
 
 | Board | Zigbee (ZHA / Z2M) | Matter over Thread (QR code) |
 |---|---|---|
 | M5NanoC6 | `spooky-nanoc6-zigbee-<ver>-factory.bin` | `spooky-nanoc6-matter-<ver>-factory.bin` |
-| M5NanoH2 | `spooky-nanoh2-zigbee-<ver>-factory.bin` | `spooky-nanoh2-matter-<ver>-factory.bin` |
+| M5NanoH2 | `spooky-nanoh2-zigbee-<ver>-factory.bin` | — (not enough RAM, see below) |
 
 Open [ESPHome Web](https://web.esphome.io) in Chrome or Edge, connect the board
 by USB-C, choose **Install** and pick the file. Or from a terminal:
 
 ```bash
-esptool --chip esp32c6 write_flash 0x0 spooky-nanoc6-zigbee-v1.1.1-factory.bin   # esp32h2 for the NanoH2
+esptool --chip esp32c6 write_flash 0x0 spooky-nanoc6-zigbee-v1.1.2-factory.bin   # esp32h2 for the NanoH2
 ```
 
 A `-factory.bin` rewrites the whole flash, **including the Zigbee network /
@@ -121,7 +122,7 @@ maximum, 1000 mA budget). To change those, build it yourself:
 
    | | Zigbee | Matter over Thread |
    |---|---|---|
-   | Board | **ESP32C6 Dev Module** (NanoC6) / **ESP32H2 Dev Module** (NanoH2) | same |
+   | Board | **ESP32C6 Dev Module** (NanoC6) / **ESP32H2 Dev Module** (NanoH2) | **ESP32C6 Dev Module** (NanoC6 only) |
    | USB CDC On Boot | **Enabled** | **Enabled** |
    | Partition Scheme | **Zigbee ZCZR 4MB with spiffs** | **Huge APP (3MB No OTA/1MB SPIFFS)** |
    | Zigbee mode | **Zigbee ZCZR (coordinator/router)** | **Disabled** |
@@ -270,9 +271,10 @@ because Matter's `attribute::update()` can echo back into the callbacks, so
 those are written to be idempotent. Settings are saved to NVS 5 s after the last
 change to spare the flash.
 
-**2½ · Matter.** The ESP32-H2's Matter library allows only seven endpoints,
-root included. Matter also has no "number" device. So the firmware packs
-everything into six endpoints every controller understands:
+**2½ · Matter.** Matter has no "number" device, and every endpoint costs RAM
+(the most restrictive Arduino Matter targets allow only seven, root included).
+So the firmware packs everything into six endpoints every controller
+understands:
 * a colour light;
 * dimmers whose level carries the effect, speed, spotlight pixel and "setup"
   (output mode and manual LED count), in bands that survive Home Assistant's
@@ -282,6 +284,16 @@ everything into six endpoints every controller understands:
 
 The host test's Matter stand-in enforces the same per-chip endpoint limits, so a
 design that doesn't fit fails the build instead of a board.
+
+**Why no Matter on the NanoH2?** The ESP32-H2 has 320 KB of RAM, against the
+C6's 512 KB. Arduino's prebuilt Matter library for it uses about 198 KB of that
+statically, leaving ~69 KB of heap. Starting Matter with Bluetooth pairing and
+Thread needs more: decoding the crash showed the heap running dry. Espressif's
+own [RAM guide](https://docs.espressif.com/projects/esp-matter/en/latest/esp32h2/optimizations.html)
+gets an H2 light there only with ESP-IDF settings (Bluetooth controller and
+FreeRTOS code in flash, SPI flash driver from ROM, …) that Arduino doesn't expose.
+So the firmware refuses a NanoH2 Matter build with a clear compile error instead
+of producing an image that crash-loops. The NanoH2 runs Zigbee.
 
 Each light draws a random setup passcode and discriminator on first boot (never
 the shared 20202021 test code), keeps them in flash, and prints its onboarding
@@ -340,8 +352,9 @@ python3 -m unittest discover -s tests   # integration logic + sync checks
 
 The host test compiles the real sketch against API stand-ins for the Arduino
 Zigbee and Matter libraries and a bit-level model of a P9813 chain wired through
-the loopback divider. It runs under AddressSanitizer/UBSan for five variants:
-NanoC6 and NanoH2, Zigbee and Matter, plus the older Zigbee colour-light API.
+the loopback divider. It runs under AddressSanitizer/UBSan for four variants:
+Zigbee on the NanoC6 and NanoH2, Matter on the NanoC6, plus the older Zigbee
+colour-light API. It also confirms that a NanoH2 Matter build is refused.
 It checks:
 * the colour encoding against Seeed's reference, and counting chains of 0–24
   modules under two chip models;
@@ -356,20 +369,22 @@ The QR code each Matter variant prints on its "serial monitor" is rebuilt from
 the text and decoded by an independent decoder ([jsQR](https://github.com/cozmo/jsQR)).
 The payload must carry exactly the passcode the firmware stored.
 
-GitHub Actions does all of that too, compiles all four images with Espressif's
+GitHub Actions does all of that too, compiles all three images with Espressif's
 real ESP32-C6/H2 toolchain, and runs HACS and hassfest validation.
 
 ## Status: what has and hasn't been verified
 
 * ✅ Zigbee on the NanoC6 has been run on real hardware (onboard LED).
 * ✅ Everything compiles for both chips and passes the simulations above.
-* ⚠️ **Matter over Thread and the NanoH2 haven't been run on real hardware
-  yet.** The Arduino Matter API, Home Assistant's Matter entity IDs and
+* ❌ **Matter on the NanoH2 doesn't fit** (see *Why no Matter on the NanoH2?*).
+  1.1.0 and 1.1.1 crashed at boot on real hardware; from 1.1.2 the NanoH2 is
+  Zigbee-only.
+* ⚠️ **Matter on the NanoC6 and Zigbee on the NanoH2 haven't been run on real
+  hardware yet.** The Arduino Matter API, Home Assistant's Matter entity IDs and
   brightness maths were read from their current source code, and the pairing
-  codes are checked against the Matter spec's published test vector. But real
-  commissioning, Thread networking and the H2's RAM headroom still need a first
-  evening on the bench. (1.1.0's 17-endpoint Matter layout crashed the NanoH2 at
-  boot; 1.1.1 fits its 7-endpoint limit and logs free heap for diagnosis.)
+  codes are checked against the Matter spec's published test vector. The C6
+  has about twice the H2's free RAM and logs its free heap at start-up, but real
+  commissioning and Thread networking still need a first evening on the bench.
 * ⚠️ The NanoH2 Grove pin order comes from M5Unified (it disagrees with M5's docs
   page). With a loopback fitted the firmware finds the right orientation
   itself. Without one, if the string stays dark, swap `PIN_GROVE_CLK` /

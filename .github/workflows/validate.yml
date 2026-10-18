@@ -37,7 +37,7 @@ jobs:
       - run: python -m unittest discover -s tests -v
 
   firmware-host-tests:
-    name: Firmware logic (host simulation, 5 variants)
+    name: Firmware logic (host simulation, all variants)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -60,7 +60,6 @@ jobs:
           - { board: nanoc6, stack: zigbee, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
           - { board: nanoc6, stack: matter, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app" }
           - { board: nanoh2, stack: zigbee, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
-          - { board: nanoh2, stack: matter, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=huge_app" }
     steps:
       - uses: actions/checkout@v5
       - uses: arduino/compile-sketches@v1

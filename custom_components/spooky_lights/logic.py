@@ -164,7 +164,7 @@ TRANSPORT_MATTER = "matter"
 CONF_TRANSPORT = "transport"
 
 # Endpoint plan of the Matter firmware (firmware/SpookyLights/TransportMatter.cpp).
-# Six endpoints, because the ESP32-H2 Matter library allows 7 including the root:
+# Six endpoints (fits every Arduino Matter target; the smallest allow 7 incl. root):
 # light · effect · speed · spotlight · setup (output + manual count) · LED count.
 MATTER_EP_LIGHT = 1
 MATTER_EP_EFFECT = 2

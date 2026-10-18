@@ -4,12 +4,13 @@ name: Release
 #   * main receives a commit whose manifest.json "version" has no v<version> tag
 #     yet (bump the version, push, done — Actions creates the tag), or
 #   * someone pushes a tag like v1.1.0 directly.
-# Every release carries firmware for both boards and both radio stacks:
+# Every release carries firmware for each supported board x radio stack
+# (NanoC6: Zigbee + Matter; NanoH2: Zigbee - too little RAM for Arduino Matter):
 #   spooky-<board>-<stack>-<tag>-factory.bin   whole-flash image, write at 0x0 (first install /
 #                                              switching Zigbee ⇄ Matter; erases pairing!)
 #   spooky-<board>-<stack>-<tag>-app.bin       app only, write at 0x10000 (updates keep pairing)
 #   spooky-<board>-<stack>-<tag>-bootloader.bin / -partitions.bin / .elf
-#     board = nanoc6 | nanoh2      stack = zigbee | matter
+#     nanoc6-zigbee, nanoc6-matter, nanoh2-zigbee
 #   spooky_lights-<tag>.zip        the Home Assistant integration
 #   nanoc6_spooky.mjs              optional Zigbee2MQTT converter
 #   matter_label.py + friends      printable Matter pairing labels (tools-<tag>.zip)
@@ -84,7 +85,6 @@ jobs:
           - { board: nanoc6, chip: esp32c6, stack: zigbee, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
           - { board: nanoc6, chip: esp32c6, stack: matter, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app" }
           - { board: nanoh2, chip: esp32h2, stack: zigbee, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
-          - { board: nanoh2, chip: esp32h2, stack: matter, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=huge_app" }
     steps:
       - uses: actions/checkout@v5
       - uses: arduino/setup-arduino-cli@v2
@@ -148,11 +148,12 @@ jobs:
             echo
             echo "| Board | Pairs with | First install / switching stacks (write at 0x0) | Update, keeps pairing (write at 0x10000) |"
             echo "|---|---|---|---|"
-            for b in nanoc6 nanoh2; do
-              B=$([ $b = nanoc6 ] && echo M5NanoC6 || echo M5NanoH2)
-              echo "| $B | ZHA / Zigbee2MQTT (Zigbee) | \`spooky-$b-zigbee-$v-factory.bin\` | \`spooky-$b-zigbee-$v-app.bin\` |"
-              echo "| $B | Matter over Thread (QR code) | \`spooky-$b-matter-$v-factory.bin\` | \`spooky-$b-matter-$v-app.bin\` |"
-            done
+            echo "| M5NanoC6 | ZHA / Zigbee2MQTT (Zigbee) | \`spooky-nanoc6-zigbee-$v-factory.bin\` | \`spooky-nanoc6-zigbee-$v-app.bin\` |"
+            echo "| M5NanoC6 | Matter over Thread (QR code) | \`spooky-nanoc6-matter-$v-factory.bin\` | \`spooky-nanoc6-matter-$v-app.bin\` |"
+            echo "| M5NanoH2 | ZHA / Zigbee2MQTT (Zigbee) | \`spooky-nanoh2-zigbee-$v-factory.bin\` | \`spooky-nanoh2-zigbee-$v-app.bin\` |"
+            echo
+            echo "The NanoH2 is Zigbee-only: Arduino's Matter library leaves it too little RAM to start Matter."
+            echo "Use the NanoC6 for Matter."
             echo
             echo "Easiest: open https://web.esphome.io in Chrome/Edge, connect the board over USB-C, choose **Install**"
             echo "and pick the \`-factory.bin\`. A factory image erases the whole flash, including the Zigbee network"

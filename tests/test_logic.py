@@ -34,6 +34,10 @@ class FirmwareSyncTests(unittest.TestCase):
         names = re.findall(r'"((?:[^"\\]|\\.)*)"', block)
         self.assertEqual(tuple(names), logic.EFFECTS)
 
+    def test_h2_matter_is_refused_at_build_time(self):
+        cfg = (FW / "config.h").read_text()
+        self.assertRegex(cfg, r"#if SPOOKY_MATTER && defined\(CONFIG_IDF_TARGET_ESP32H2\)\s*\n#error")
+
     def test_max_chain_matches_firmware(self):
         cfg = (FW / "config.h").read_text()
         self.assertEqual(int(re.search(r"#define MAX_CHAIN\s+(\d+)", cfg).group(1)), logic.MAX_CHAIN)
@@ -158,7 +162,7 @@ class MatterMappingTests(unittest.TestCase):
              logic.MATTER_EP_SETUP, logic.MATTER_EP_COUNT],
             list(endpoints.values()),
         )  # fmt: skip
-        # The ESP32-H2 Matter library allows 7 endpoints including the root.
+        # The most restrictive Arduino Matter targets allow 7 endpoints including the root.
         self.assertLessEqual(len(endpoints) + 1, 7)
         self.assertIn("MATTER_APP_ENDPOINTS = 6", src)
 
@@ -227,11 +231,11 @@ class OnboardingCodeTests(unittest.TestCase):
 
     def test_label_from_serial_log(self):
         log = (
-            "  ==== NanoH2 Spooky Lights — ready to pair (Matter) ====\n"
+            "  ==== NanoC6 Spooky Lights — ready to pair (Matter) ====\n"
             "  QR payload          : MT:6FCJ1MBW17KGJG03P10\n"
         )
         lb = matter_label.parse_log(log)
-        self.assertEqual((lb.payload, lb.board, lb.manual), ("MT:6FCJ1MBW17KGJG03P10", "NanoH2", "2181-534-7940"))
+        self.assertEqual((lb.payload, lb.board, lb.manual), ("MT:6FCJ1MBW17KGJG03P10", "NanoC6", "2181-534-7940"))
         svg = matter_label.sheet_svg([lb])
         self.assertIn("2181-534-7940", svg)
         self.assertTrue(svg.startswith("<svg"))

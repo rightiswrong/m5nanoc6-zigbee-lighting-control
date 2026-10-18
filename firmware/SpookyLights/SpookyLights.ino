@@ -7,14 +7,16 @@
 //  Arduino IDE (esp32 by Espressif ≥ 3.3.12), Tools menu:
 //
 //                     Zigbee build                   Matter-over-Thread build
-//    Board .......... ESP32C6 Dev Module (NanoC6)  / ESP32H2 Dev Module (NanoH2)
+//    Board .......... ESP32C6 Dev Module (NanoC6)    ESP32C6 Dev Module (NanoC6 only)
+//                     or ESP32H2 Dev Module (NanoH2)
 //    USB CDC On Boot  Enabled                        Enabled
 //    Partition ...... Zigbee ZCZR 4MB with spiffs    Huge APP (3MB No OTA/1MB SPIFFS)
 //    Zigbee mode .... Zigbee ZCZR (coord./router)    Disabled
 //    Erase flash .... —                              "Enabled" the first time
 //
 //  The Zigbee mode menu is the only switch: the same sketch becomes a Zigbee
-//  router for ZHA, or a Matter-over-Thread light you pair with a QR code.
+//  router for ZHA, or (on the NanoC6) a Matter-over-Thread light you pair with
+//  a QR code. The NanoH2 has too little RAM for Arduino's Matter library.
 //
 //  Button (G9): click = next effect · hold 1–5 s = on/off · hold 5 s+ = leave
 //  the network (Zigbee reset / Matter decommission; LED turns red, release).

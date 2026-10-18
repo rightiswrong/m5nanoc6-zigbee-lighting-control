@@ -9,12 +9,12 @@
 
 // Keep in sync with custom_components/spooky_lights/manifest.json "version"
 // (the release workflow refuses to publish if they differ from the tag).
-#define FW_VERSION "1.1.1"
+#define FW_VERSION "1.1.2"
 
 // ------------------------------------------------------------ Radio stack
 // Chosen with the Arduino IDE "Zigbee Mode" menu — no code changes needed:
 //   Zigbee ZCZR (coordinator/router) → Zigbee router, pairs with ZHA / Z2M
-//   Disabled                         → Matter over Thread (QR-code pairing)
+//   Disabled                         → Matter over Thread (QR-code pairing; NanoC6 only)
 #if defined(ZIGBEE_MODE_ZCZR)
 #define SPOOKY_ZIGBEE 1
 #define SPOOKY_MATTER 0
@@ -23,6 +23,15 @@
 #else
 #define SPOOKY_ZIGBEE 0
 #define SPOOKY_MATTER 1
+#endif
+
+// Matter is NanoC6-only. On the ESP32-H2, Arduino's prebuilt Matter library
+// leaves ~69 KB of heap, and Matter + Bluetooth pairing + Thread need more:
+// v1.1.1 aborted at start-up with the heap exhausted (newlib lock_init_generic,
+// decoded from the crash). Espressif's RAM guide gets an H2 there only with
+// ESP-IDF settings Arduino doesn't expose. The NanoH2 runs the Zigbee build.
+#if SPOOKY_MATTER && defined(CONFIG_IDF_TARGET_ESP32H2)
+#error "The ESP32-H2 (NanoH2) doesn't have enough RAM for Arduino's Matter library. Set Tools > Zigbee mode > 'Zigbee ZCZR (coordinator/router)' and Partition Scheme > 'Zigbee ZCZR 4MB with spiffs'. Matter is supported on the NanoC6."
 #endif
 
 // ---------------------------------------------------------- Grove P9813 chain
@@ -87,7 +96,7 @@
 // TransportMatter.cpp). The Home Assistant integration maps them by number.
 //
 // Network: Thread by default. On the ESP32-C6 (which also has Wi-Fi) set this
-// to 1 for Matter over Wi-Fi instead. The ESP32-H2 is Thread-only.
+// to 1 for Matter over Wi-Fi instead.
 #define MATTER_USE_WIFI      0
 
 // Every device generates its own random setup passcode and discriminator on
