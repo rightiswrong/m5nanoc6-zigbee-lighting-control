@@ -2,7 +2,7 @@
 
 The firmware speaks either Zigbee (paired with ZHA or Zigbee2MQTT) or Matter over
 Thread (paired with Home Assistant's Matter integration). Either way it shows up
-as a handful of raw entities — "number: 3", "Switch (5)", "4.0 lx". This
+as a handful of raw entities — "number: 3", "Light (2)", "4.0 lx". This
 integration sits on top of those and gives you:
 
 * a light with a named effect list (usable from any light card / scene),
@@ -49,7 +49,6 @@ from .const import (
     signal_chain,
 )
 from .logic import (
-    CONF_EFFECT_SWITCHES,
     CONF_TRANSPORT,
     TRANSPORT_MATTER,
     TRANSPORT_ZIGBEE,
@@ -57,7 +56,10 @@ from .logic import (
     band_to_level,
     count_from_lux,
     effective_chain_count,
+    fine_to_level,
     ha_brightness_for_level,
+    pack_setup,
+    setup_from_brightness,
     speed_from_brightness,
     speed_to_level,
     to_index,
@@ -77,7 +79,6 @@ _ROLE_MAX = {
     ROLE_MANUAL: MAX_CHAIN,
     ROLE_COUNT: MAX_CHAIN,
 }
-_MATTER_BAND_ROLES = (ROLE_OUTPUT, ROLE_SPOTLIGHT, ROLE_MANUAL)
 
 
 @dataclass
@@ -101,19 +102,14 @@ class SpookyRuntime:
     device_info: DeviceInfo
     device_id: str | None
     transport: str = TRANSPORT_ZIGBEE
-    effect_switches: list[str] = field(default_factory=list)  # Matter: index = effect
     layout: Layout = field(default_factory=Layout)
 
     # ------------------------------------------------------------ entities
     def entity(self, role: str) -> str | None:
-        if role == ROLE_EFFECT and self.transport == TRANSPORT_MATTER:
-            return self.effect_switches[0] if self.effect_switches else None
         return self.roles.get(role) or None
 
     def entities_for(self, role: str) -> list[str]:
         """Every source entity whose state feeds `role` (for change tracking)."""
-        if role == ROLE_EFFECT and self.transport == TRANSPORT_MATTER:
-            return [e for e in self.effect_switches if e]
         entity_id = self.roles.get(role)
         return [entity_id] if entity_id else []
 
@@ -133,20 +129,17 @@ class SpookyRuntime:
             if st is None:
                 return None
             return to_index(st.state, upper, default=50 if role == ROLE_SPEED else 0)
-        if role == ROLE_EFFECT:
-            for index, entity_id in enumerate(self.effect_switches):
-                st = self.hass.states.get(entity_id) if entity_id else None
-                if st is not None and st.state == STATE_ON:
-                    return index
-            return None
         st = self.state(role)
         if st is None:
             return None
         if role == ROLE_COUNT:
             return count_from_lux(st.state)
-        brightness = st.attributes.get("brightness")
+        brightness = st.attributes.get("brightness") if st.state == STATE_ON else None
         if role == ROLE_SPEED:
             return speed_from_brightness(brightness)
+        if role in (ROLE_OUTPUT, ROLE_MANUAL):
+            output, manual = setup_from_brightness(brightness)
+            return output if role == ROLE_OUTPUT else manual
         return min(upper, band_from_brightness(st.state == STATE_ON, brightness))
 
     async def async_write(self, role: str, value: int) -> None:
@@ -158,17 +151,16 @@ class SpookyRuntime:
                     "number", "set_value", {ATTR_ENTITY_ID: entity_id, "value": value}, blocking=True
                 )
             return
-        if role == ROLE_EFFECT:
-            if value < len(self.effect_switches) and self.effect_switches[value]:
-                await self.hass.services.async_call(
-                    "switch", "turn_on", {ATTR_ENTITY_ID: self.effect_switches[value]}, blocking=True
-                )
-            return
         entity_id = self.entity(role)
         if not entity_id:
             return
         if role == ROLE_SPEED:
             level = speed_to_level(max(1, value))
+        elif role in (ROLE_OUTPUT, ROLE_MANUAL):
+            # One endpoint carries both: keep the other half as it is.
+            output = value if role == ROLE_OUTPUT else self.read(ROLE_OUTPUT) or 0
+            manual = value if role == ROLE_MANUAL else self.read(ROLE_MANUAL) or 0
+            level = fine_to_level(pack_setup(output, manual))
         elif value == 0:
             await self.hass.services.async_call("light", "turn_off", {ATTR_ENTITY_ID: entity_id}, blocking=True)
             return
@@ -189,8 +181,8 @@ class SpookyRuntime:
         """Raw Matter entities this integration presents better (hidden from the device page)."""
         if self.transport != TRANSPORT_MATTER:
             return []
-        roles = (ROLE_SPEED, ROLE_OUTPUT, ROLE_SPOTLIGHT, ROLE_MANUAL, ROLE_COUNT)
-        return [e for e in (*self.effect_switches, *(self.roles.get(r) for r in roles)) if e]
+        roles = (ROLE_EFFECT, ROLE_SPEED, ROLE_SPOTLIGHT, ROLE_OUTPUT, ROLE_COUNT)  # setup = output = manual
+        return list(dict.fromkeys(e for r in roles if (e := self.roles.get(r))))
 
 
 def _build_device_info(hass: HomeAssistant, entry: ConfigEntry) -> tuple[DeviceInfo, str | None]:
@@ -223,7 +215,6 @@ def runtime_from_entry(hass: HomeAssistant, entry: ConfigEntry) -> SpookyRuntime
         device_info,
         device_id,
         transport=merged.get(CONF_TRANSPORT, TRANSPORT_ZIGBEE),
-        effect_switches=list(merged.get(CONF_EFFECT_SWITCHES) or []),
     )
 
 

@@ -162,26 +162,24 @@ def guess_role(domain: str, unique_id: str, *names: str | None) -> str | None:
 TRANSPORT_ZIGBEE = "zigbee"
 TRANSPORT_MATTER = "matter"
 CONF_TRANSPORT = "transport"
-CONF_EFFECT_SWITCHES = "effect_switches"
 
-# Endpoint plan of the Matter firmware (firmware/SpookyLights/TransportMatter.cpp):
-# 1 light · 2… one switch per effect · then speed, output, spotlight, manual
-# count (dimmable plug-ins) · then the LED-count light sensor.
+# Endpoint plan of the Matter firmware (firmware/SpookyLights/TransportMatter.cpp).
+# Six endpoints, because the ESP32-H2 Matter library allows 7 including the root:
+# light · effect · speed · spotlight · setup (output + manual count) · LED count.
 MATTER_EP_LIGHT = 1
-MATTER_EP_FIRST_EFFECT = 2
-MATTER_EP_SPEED = MATTER_EP_FIRST_EFFECT + len(EFFECTS)
-MATTER_EP_OUTPUT = MATTER_EP_SPEED + 1
-MATTER_EP_SPOTLIGHT = MATTER_EP_SPEED + 2
-MATTER_EP_MANUAL = MATTER_EP_SPEED + 3
-MATTER_EP_COUNT = MATTER_EP_SPEED + 4
+MATTER_EP_EFFECT = 2
+MATTER_EP_SPEED = 3
+MATTER_EP_SPOTLIGHT = 4
+MATTER_EP_SETUP = 5
+MATTER_EP_COUNT = 6
 
-MATTER_ROLE_BY_EP: dict[int, tuple[str, str]] = {  # endpoint → (role, HA domain)
-    MATTER_EP_LIGHT: (ROLE_LIGHT, "light"),
-    MATTER_EP_SPEED: (ROLE_SPEED, "light"),
-    MATTER_EP_OUTPUT: (ROLE_OUTPUT, "light"),
-    MATTER_EP_SPOTLIGHT: (ROLE_SPOTLIGHT, "light"),
-    MATTER_EP_MANUAL: (ROLE_MANUAL, "light"),
-    MATTER_EP_COUNT: (ROLE_COUNT, "sensor"),
+MATTER_ROLE_BY_EP: dict[int, tuple[tuple[str, ...], str]] = {  # endpoint → (roles, HA domain)
+    MATTER_EP_LIGHT: ((ROLE_LIGHT,), "light"),
+    MATTER_EP_EFFECT: ((ROLE_EFFECT,), "light"),
+    MATTER_EP_SPEED: ((ROLE_SPEED,), "light"),
+    MATTER_EP_SPOTLIGHT: ((ROLE_SPOTLIGHT,), "light"),
+    MATTER_EP_SETUP: ((ROLE_OUTPUT, ROLE_MANUAL), "light"),  # one endpoint, two settings
+    MATTER_EP_COUNT: ((ROLE_COUNT,), "sensor"),
 }
 
 # HA Matter unique_id: "<fabric>-<node>-MatterNodeDevice-<endpoint>-<key>-<cluster>-<attribute>"
@@ -191,6 +189,10 @@ _MATTER_EP = re.compile(r"-MatterNodeDevice-(\d+)-")
 BAND_OFFSET = 10
 BAND_STEP = 9
 BAND_MAX_VALUE = 26
+FINE_OFFSET = 10
+FINE_STEP = 2
+FINE_MAX_VALUE = 99
+SETUP_STRIDE = 25
 
 
 def matter_endpoint(unique_id: str) -> int | None:
@@ -198,19 +200,15 @@ def matter_endpoint(unique_id: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def guess_matter_role(domain: str, unique_id: str) -> tuple[str, int | None] | None:
-    """Map one HA Matter entity to (role, effect_index); None if it isn't one of ours."""
+def guess_matter_roles(domain: str, unique_id: str) -> tuple[str, ...]:
+    """Spooky roles one HA Matter entity plays (empty if it isn't one of ours)."""
     endpoint = matter_endpoint(unique_id)
-    if endpoint is None:
-        return None
-    if domain == "switch" and MATTER_EP_FIRST_EFFECT <= endpoint < MATTER_EP_SPEED:
-        return CONF_EFFECT_SWITCHES, endpoint - MATTER_EP_FIRST_EFFECT
-    role = MATTER_ROLE_BY_EP.get(endpoint)
-    if role and role[1] == domain:
-        if role[0] == ROLE_COUNT and "-LightSensor-" not in unique_id:
-            return None
-        return role[0], None
-    return None
+    hit = MATTER_ROLE_BY_EP.get(endpoint) if endpoint is not None else None
+    if hit is None or hit[1] != domain:
+        return ()
+    if hit[0] == (ROLE_COUNT,) and "-LightSensor-" not in unique_id:
+        return ()
+    return hit[0]
 
 
 def band_to_level(value: int) -> int:
@@ -221,6 +219,32 @@ def level_to_band(level: int) -> int:
     if level <= BAND_OFFSET:
         return 0
     return min(BAND_MAX_VALUE, (level - BAND_OFFSET + BAND_STEP // 2) // BAND_STEP)
+
+
+def fine_to_level(value: int) -> int:
+    return FINE_OFFSET + FINE_STEP * max(0, min(FINE_MAX_VALUE, value))
+
+
+def level_to_fine(level: int) -> int:
+    if level <= FINE_OFFSET:
+        return 0
+    return min(FINE_MAX_VALUE, (level - FINE_OFFSET + FINE_STEP // 2) // FINE_STEP)
+
+
+def pack_setup(output: int, manual: int) -> int:
+    return output * SETUP_STRIDE + manual
+
+
+def unpack_setup(packed: int) -> tuple[int, int]:
+    """→ (output mode, manual LED count)"""
+    output, manual = divmod(packed, SETUP_STRIDE)
+    return min(output, len(OUTPUT_MODES) - 1), min(manual, MAX_CHAIN)
+
+
+def setup_from_brightness(brightness: int | None) -> tuple[int, int]:
+    if brightness is None:
+        return 0, 0
+    return unpack_setup(level_to_fine(ha_level_for_brightness(brightness)))
 
 
 def speed_to_level(speed: int) -> int:

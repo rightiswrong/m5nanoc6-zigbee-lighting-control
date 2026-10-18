@@ -99,33 +99,51 @@ Settings → Devices & services → **Add integration → Spooky Lights** → pi
 light. Matter lights are mapped automatically from their endpoint numbers;
 press **Submit**. You get the same entities as with Zigbee: the haunted light
 with a named effect list, Effect, Output, Effect speed, Spotlight pixel, Active
-pixels, Chain change, and Jump scare. The raw helper entities (eleven effect
-switches, four "dimmer" helpers and a lux sensor) are hidden from the device
-page. Removing the integration shows them again.
+pixels, Chain change, and Jump scare. The raw helper entities (four "dimmer"
+helpers and a lux sensor) are hidden from the device page. Removing the
+integration shows them again.
 
 Without the integration, everything still works. You get:
 * a colour light;
-* one switch per effect, radio-button style (Siri / Google can switch them by
-  name once you name them);
-* four dimmers and a light sensor (see below).
+* an **Effect** dimmer: off = Solid, and each step of about 3.5 % picks the next
+  effect (see the table);
+* dimmers for speed, spotlight and setup, plus a light sensor (see below).
 
 ## What the light exposes over Matter
+
+Six endpoints. The ESP32-H2's Matter library allows seven including the root
+endpoint, and each one costs memory, so the whole show is packed into six.
 
 | Endpoint | Matter device type | Meaning |
 |---|---|---|
 | 1 | Extended colour light | On/off, brightness, colour |
-| 2 – 12 | On/Off plug-in unit | One per effect: Solid, Candle Flicker, …, Blood Moon, **Demo Reel**. Turning one on turns the others off. Turning the active one off falls back to Solid. Each is tagged with the effect's name (Descriptor TagList). |
-| 13 | Dimmable plug-in unit | Effect speed: level ≈ speed % (50 % = normal) |
-| 14 | Dimmable plug-in unit | Output: off = auto, then 1 onboard · 2 Grove · 3 both |
-| 15 | Dimmable plug-in unit | Spotlight pixel (off = no spotlight) |
-| 16 | Dimmable plug-in unit | Manual LED count (off = auto-detect) |
-| 17 | Light sensor | Grove LEDs detected, reported as **count + 1 lux** (Matter can't report 0 lx) |
+| 2 | Dimmable plug-in unit | **Effect**: off = Solid, otherwise level 10 + 9 × effect number |
+| 3 | Dimmable plug-in unit | **Effect speed**: level ≈ speed % (50 % = normal) |
+| 4 | Dimmable plug-in unit | **Spotlight pixel**: off = none, otherwise level 10 + 9 × pixel |
+| 5 | Dimmable plug-in unit | **Setup**: level 10 + 2 × (output × 25 + manual LED count) |
+| 6 | Light sensor | Grove LEDs detected, reported as **count + 1 lux** (Matter can't report 0 lx) |
 
-Matter has no generic "number" device, so endpoints 14–16 carry small integers
-as a dimmer level in wide bands: value *v* ↔ level 10 + 9·*v*. A controller
-that converts levels through percentages or 0–255 brightness can be a level or
-two off and still decode to the right value. The integration does the
-conversion for you.
+Matter has no generic "number" device, so the dimmers carry small integers as
+levels.
+* **Effect and spotlight** use wide bands (9 levels apart), so a controller that
+  converts through percentages can be a level or two off and still land right.
+* **Setup** needs a finer band to fit both settings. Home Assistant converts
+  levels exactly, so it's reliable there; the integration does the conversion
+  for you.
+
+| Effect level | % | Effect | | Effect level | % | Effect |
+|---|---|---|---|---|---|---|
+| off | — | Solid | | 64 | 25 % | Haunted Chase |
+| 19 | 7 % | Candle Flicker | | 73 | 29 % | Poltergeist |
+| 28 | 11 % | Ghost Breath | | 82 | 32 % | Possessed Pumpkin |
+| 37 | 15 % | Lightning Storm | | 91 | 36 % | Blood Moon |
+| 46 | 18 % | Witch's Cauldron | | 100 | 39 % | Demo Reel |
+| 55 | 22 % | Tell-Tale Heart | | | | |
+
+> **Updating from 1.1.0?** That version's Matter layout used 17 endpoints. The
+> NanoH2 can't create that many (it crashed at boot), and the endpoint numbers
+> have changed. Flash the 1.1.1 **`-factory.bin`**, remove the old device from
+> Home Assistant, pair again, and run *Spooky Lights → Configure* to re-scan.
 
 ## Troubleshooting
 
@@ -136,4 +154,6 @@ conversion for you.
 | Paired, then "unavailable" | IPv6 or mDNS blocked between HA and the border router (VLANs, client isolation, multicast filtering). |
 | Re-flashed, but it still thinks it's paired | Flashing an `-app.bin` keeps the pairing. Use the `-factory.bin`, or hold the button 5 s. |
 | Serial says *this build has no Matter-over-Thread* | The Arduino core is too old. Use esp32 by Espressif ≥ 3.3.12. |
+| Serial says *ERROR: only N of 6 endpoints could be created*, or `Dynamic endpoint count cannot be greater than …` | Something added endpoints beyond the chip's limit (7 including root on the ESP32-H2). Undo the change, or send the log. |
+| Crash with `Failed to allocate memory` | Out of RAM. The serial log prints *free heap* before and after start-up; please send it along. |
 | I want Matter over Wi-Fi (NanoC6 only) | Set `MATTER_USE_WIFI 1` in `config.h` and rebuild. The phone then hands over your Wi-Fi credentials instead. |

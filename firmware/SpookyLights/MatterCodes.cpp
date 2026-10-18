@@ -72,6 +72,17 @@ uint8_t levelToBand(uint8_t level) {
   return (uint8_t)(v > BAND_MAX_VALUE ? BAND_MAX_VALUE : v);
 }
 
+uint8_t fineToLevel(uint8_t v) {
+  if (v > FINE_MAX_VALUE) v = FINE_MAX_VALUE;
+  return (uint8_t)(FINE_OFFSET + FINE_STEP * v);
+}
+
+uint8_t levelToFine(uint8_t level) {
+  if (level <= FINE_OFFSET) return 0;
+  unsigned v = (unsigned)(level - FINE_OFFSET + FINE_STEP / 2) / FINE_STEP;   // round half up
+  return (uint8_t)(v > FINE_MAX_VALUE ? FINE_MAX_VALUE : v);
+}
+
 uint8_t speedToLevel(uint8_t speed) {
   if (speed < 1) speed = 1;
   if (speed > 100) speed = 100;

@@ -63,6 +63,8 @@ extern HostSerial Serial;
 struct HostESP {
   void restart() { printf("ESP.restart()\n"); ++restarts; }
   uint64_t getEfuseMac() { return 0x0000C0FFEE31ull; }
+  uint32_t getFreeHeap() { return 61234; }
+  uint32_t getMinFreeHeap() { return 48765; }
   int restarts = 0;
 };
 extern HostESP ESP;

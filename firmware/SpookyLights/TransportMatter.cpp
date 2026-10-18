@@ -4,17 +4,17 @@
 //  Google Home and SmartThings; the Spooky Lights HA integration adds the
 //  named effect list, spotlight slider and chain events on top.
 //
-//  Endpoints are numbered in creation order (the HA integration relies on it):
-//     1        Extended colour light ..... on/off, brightness, colour
-//     2 … 12   On/Off plug-in units ...... one switch per effect (Solid … Demo
-//                                          Reel), radio-button style; each is
-//                                          tagged with the effect's name
-//    13        Dimmable plug-in unit ..... effect speed (level ≈ speed %)
-//    14        Dimmable plug-in unit ..... output routing   (banded level)
-//    15        Dimmable plug-in unit ..... spotlight pixel  (banded level)
-//    16        Dimmable plug-in unit ..... manual LED count (banded level)
-//    17        Light sensor .............. detected Grove LEDs, as count + 1 lux
-//  Banded level: value v ↔ level 10 + 9·v (MatterCodes.h).
+//  Endpoints are numbered in creation order (the HA integration relies on it).
+//  The ESP32-H2 Matter library allows only 7 endpoints *including the root*
+//  (CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=7; the C6 allows 32), and
+//  every endpoint costs heap, so the whole show fits in six:
+//     1  Extended colour light ..... on/off, brightness, colour
+//     2  Dimmable plug-in unit ..... effect   (off = Solid, else banded level)
+//     3  Dimmable plug-in unit ..... effect speed (level ≈ speed %)
+//     4  Dimmable plug-in unit ..... spotlight pixel (off = none, banded level)
+//     5  Dimmable plug-in unit ..... setup: output·25 + manual LED count (fine band)
+//     6  Light sensor .............. detected Grove LEDs, as count + 1 lux
+//  Banded level: v ↔ 10 + 9·v.  Fine band: v ↔ 10 + 2·v.  (MatterCodes.h)
 //
 //  Pairing: every device makes its own random passcode + discriminator on
 //  first boot (kept in NVS "spooky_mt"). Its QR code is printed on the serial
@@ -35,9 +35,11 @@
 namespace {
 
 MatterColorLight light;
-MatterOnOffPlugin fxSwitch[FX_COUNT];
-MatterDimmablePlugin speedEp, outputEp, spotEp, manualEp;
+MatterDimmablePlugin effectEp, speedEp, spotEp, setupEp;
 MatterLightSensor countEp;
+constexpr uint8_t MATTER_APP_ENDPOINTS = 6;   // + root = 7, the ESP32-H2 library's limit
+static_assert(MAX_CHAIN < mcodes::SETUP_STRIDE, "manual count must fit the setup packing");
+static_assert(FX_COUNT - 1 <= mcodes::BAND_MAX_VALUE, "effects must fit the band");
 
 // What the controller already knows about the light (callbacks write it
 // inside the g_show lock, loop() after publishing).
@@ -124,18 +126,6 @@ bool onLight(bool on, espHsvColor_t hsv) {
   return true;
 }
 
-bool onEffectSwitch(uint8_t i, bool on) {
-  g_show.edit([&](ShowState &s) {
-    // Must be idempotent: our own setOnOff() calls in loop() can echo back here.
-    if (on) {
-      s.effect = i;
-    } else if (s.effect == i) {
-      s.effect = FX_SOLID;                // switching the active effect off → plain colour
-    }
-  });
-  return true;
-}
-
 uint8_t bandValue(bool on, uint8_t level, uint8_t maxValue) {
   if (!on) return 0;
   uint8_t v = mcodes::levelToBand(level);
@@ -167,7 +157,7 @@ public:
 #endif
 
     const ShowState s = g_show.get();
-    light.begin(s.on, hsvOf(s));
+    if (!light.begin(s.on, hsvOf(s))) Serial.println("[matter] ERROR: could not create the light endpoint");
     light.onChange(onLight);
     light.onIdentify([](bool active) {
       g_identifyUntil = active ? millis() + 60000u : 0u;
@@ -175,43 +165,49 @@ public:
     });
     g_repLight = {s.on, s.level, s.color};
 
-    for (uint8_t i = 0; i < FX_COUNT; ++i) {
-      fxSwitch[i].begin(i == s.effect);
-      fxSwitch[i].onChange([i](bool on) { return onEffectSwitch(i, on); });
-      fxSwitch[i].setTagList({MatterTags::Switches::createCustomTag(EFFECT_NAMES[i])});
-    }
-
-    speedEp.begin(true, mcodes::speedToLevel(s.speed));
+    int ok = 1;     // the light above
+    ok += effectEp.begin(s.effect != FX_SOLID, mcodes::bandToLevel(s.effect));
+    effectEp.onChange([](bool on, uint8_t level) {
+      // Idempotent: our own setLevel()/setOnOff() in loop() may echo back here.
+      uint8_t v = bandValue(on, level, FX_COUNT - 1);
+      g_show.edit([&](ShowState &st) { st.effect = v; });
+      return true;
+    });
+    ok += speedEp.begin(true, mcodes::speedToLevel(s.speed));
     speedEp.onChange([](bool, uint8_t level) {
       uint8_t v = mcodes::levelToSpeed(level);
       g_show.edit([&](ShowState &st) { st.speed = v; });
       return true;
     });
-    outputEp.begin(s.output != 0, mcodes::bandToLevel(s.output));
-    outputEp.onChange([](bool on, uint8_t level) {
-      uint8_t v = bandValue(on, level, OUT_COUNT - 1);
-      g_show.edit([&](ShowState &st) { st.output = v; });
-      return true;
-    });
-    spotEp.begin(s.spotlight != 0, mcodes::bandToLevel(s.spotlight));
+    ok += spotEp.begin(s.spotlight != 0, mcodes::bandToLevel(s.spotlight));
     spotEp.onChange([](bool on, uint8_t level) {
       uint8_t v = bandValue(on, level, MAX_PIXELS);
       g_show.edit([&](ShowState &st) { st.spotlight = v; });
       return true;
     });
-    manualEp.begin(s.manualCount != 0, mcodes::bandToLevel(s.manualCount));
-    manualEp.onChange([](bool on, uint8_t level) {
-      uint8_t v = bandValue(on, level, MAX_CHAIN);
-      g_show.edit([&](ShowState &st) { st.manualCount = v; });
+    ok += setupEp.begin(true, mcodes::fineToLevel(mcodes::packSetup(s.output, s.manualCount)));
+    setupEp.onChange([](bool, uint8_t level) {
+      uint8_t packed = mcodes::levelToFine(level);
+      uint8_t out = mcodes::setupOutput(packed), man = mcodes::setupManual(packed);
+      if (out >= OUT_COUNT) out = OUT_COUNT - 1;
+      if (man > MAX_CHAIN) man = MAX_CHAIN;
+      g_show.edit([&](ShowState &st) {
+        st.output = out;
+        st.manualCount = man;
+      });
       return true;
     });
-    countEp.begin(mcodes::countToLux(detected));
+    ok += countEp.begin(mcodes::countToLux(detected));
     g_repCount = detected;
+    if (ok != MATTER_APP_ENDPOINTS)
+      Serial.printf("[matter] ERROR: only %d of %u endpoints could be created\n", ok, (unsigned)MATTER_APP_ENDPOINTS);
 
+    Serial.printf("[matter] free heap before start: %u bytes\n", (unsigned)ESP.getFreeHeap());
     Matter.begin();
     g_wasCommissioned = Matter.isDeviceCommissioned();
-    Serial.printf("[matter] started — %s, %s\n", Matter.getSelectedNetwork() == MATTER_NETWORK_WIFI ? "Wi-Fi" : "Thread",
-                  g_wasCommissioned ? "already commissioned" : "waiting to be commissioned");
+    Serial.printf("[matter] started — %s, %s, free heap %u bytes\n",
+                  Matter.getSelectedNetwork() == MATTER_NETWORK_WIFI ? "Wi-Fi" : "Thread",
+                  g_wasCommissioned ? "already commissioned" : "waiting to be commissioned", (unsigned)ESP.getFreeHeap());
   }
 
   void loop(uint32_t now, uint8_t detected) override {
@@ -231,12 +227,13 @@ public:
         g_printedOnce = true;
       }
     } else if (!g_wasCommissioned) {
-      Serial.println("[matter] commissioned — welcome to the haunted house");
+      Serial.printf("[matter] commissioned — welcome to the haunted house (free heap %u, lowest %u)\n",
+                    (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap());
     }
     g_wasCommissioned = commissioned;
 
     // Publish local changes (button, restored settings) and normalise
-    // controller writes (e.g. switching effects off the radio-button way).
+    // controller writes to their canonical levels.
     ShowState s;
     bool lightDiff = false;
     g_show.peek([&](ShowState &cur) {
@@ -249,17 +246,17 @@ public:
       light.setOnOff(s.on);
       light.setColorHSV(hsvOf(s));
     }
-    for (uint8_t i = 0; i < FX_COUNT; ++i) {
-      const bool want = (i == s.effect);
-      if (fxSwitch[i].getOnOff() != want) fxSwitch[i].setOnOff(want);
-    }
+    syncBand(effectEp, s.effect);
     if (mcodes::levelToSpeed(speedEp.getLevel()) != s.speed || !speedEp.getOnOff()) {
       speedEp.setOnOff(true);
       speedEp.setLevel(mcodes::speedToLevel(s.speed));
     }
-    syncBand(outputEp, s.output);
     syncBand(spotEp, s.spotlight);
-    syncBand(manualEp, s.manualCount);
+    const uint8_t packed = mcodes::packSetup(s.output, s.manualCount);
+    if (mcodes::levelToFine(setupEp.getLevel()) != packed || !setupEp.getOnOff()) {
+      setupEp.setOnOff(true);
+      setupEp.setLevel(mcodes::fineToLevel(packed));
+    }
     if (detected != g_repCount) {
       countEp.setIlluminance(mcodes::countToLux(detected));
       g_repCount = detected;
@@ -275,8 +272,9 @@ public:
 
 private:
   static void syncBand(MatterDimmablePlugin &ep, uint8_t value) {
-    const uint8_t shown = ep.getOnOff() ? mcodes::levelToBand(ep.getLevel()) : 0;
-    if (shown == value && (value != 0 || !ep.getOnOff())) return;
+    // Done when the endpoint shows exactly the canonical encoding of value.
+    const bool canonical = value == 0 ? !ep.getOnOff() : ep.getOnOff() && ep.getLevel() == mcodes::bandToLevel(value);
+    if (canonical) return;
     ep.setLevel(mcodes::bandToLevel(value));
     ep.setOnOff(value != 0);
   }

@@ -1,7 +1,10 @@
 // Host stand-in for the Arduino-ESP32 3.3.12 Matter library — the API surface
 // the sketch uses, with the same signatures (checked against libraries/Matter
 // in espressif/arduino-esp32 @ Oct 2026). Behaviour modelled on the real one:
-//   * endpoints get ids 1, 2, 3… in begin() order (root is 0);
+//   * endpoints get ids 1, 2, 3… in begin() order (root is 0), and begin()
+//     fails past CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT (root included):
+//     7 on the ESP32-H2 (esp32-arduino-lib-builder defconfig.common), 32 on the
+//     ESP32-C6 (defconfig.esp32c6) — exactly what bit v1.1.0 on the NanoH2;
 //   * setX() from the sketch updates the attribute and — like
 //     esp_matter::attribute::update() — may echo into the user callback
 //     (MatterStub::echo, on by default) so the sketch is tested against that;
@@ -92,14 +95,14 @@ public:
 protected:
   uint16_t endpoint_id = 0;
   EndPointIdentifyCB _identifyCB;
-  void registerEndpoint(const char *k);
+  bool registerEndpoint(const char *k);
 };
 
 class MatterColorLight : public MatterEndPoint {
 public:
   using EndPointCB = std::function<bool(bool, espHsvColor_t)>;
   virtual bool begin(bool initialState = false, espHsvColor_t colorHSV = {0, 254, 31}) {
-    onOffState = initialState; hsv = colorHSV; registerEndpoint("color_light"); return true;
+    onOffState = initialState; hsv = colorHSV; return registerEndpoint("color_light");
   }
   void onChange(EndPointCB cb) { _cb = cb; }
   bool setOnOff(bool on) {
@@ -129,7 +132,7 @@ protected:
 class MatterOnOffPlugin : public MatterEndPoint {
 public:
   using EndPointCB = std::function<bool(bool)>;
-  virtual bool begin(bool initialState = false) { onOffState = initialState; registerEndpoint("onoff_plugin"); return true; }
+  virtual bool begin(bool initialState = false) { onOffState = initialState; return registerEndpoint("onoff_plugin"); }
   void onChange(EndPointCB cb) { _cb = cb; }
   bool setOnOff(bool on) {
     if (on == onOffState) return true;
@@ -151,7 +154,7 @@ class MatterDimmablePlugin : public MatterEndPoint {
 public:
   using EndPointCB = std::function<bool(bool, uint8_t)>;
   virtual bool begin(bool initialState = false, uint8_t lvl = 64) {
-    onOffState = initialState; level = lvl; registerEndpoint("dimmable_plugin"); return true;
+    onOffState = initialState; level = lvl; return registerEndpoint("dimmable_plugin");
   }
   void onChange(EndPointCB cb) { _cb = cb; }
   bool setOnOff(bool on) {
@@ -180,7 +183,7 @@ protected:
 
 class MatterLightSensor : public MatterEndPoint {
 public:
-  bool begin(double lux = 1.0) { registerEndpoint("light_sensor"); return setIlluminance(lux); }
+  bool begin(double lux = 1.0) { return registerEndpoint("light_sensor") && setIlluminance(lux); }
   bool setIlluminance(double lux) {
     if (lux < 1.0) return false;     // the real one rejects < 1 lx
     long raw = lround(10000.0 * log10(lux) + 1);
@@ -223,16 +226,31 @@ public:
     matterNetwork_t network = MATTER_NETWORK_NONE;
     bool started = false, commissioned = false, online = false;
     int decommissions = 0;
+    int failedEndpoints = 0;
     std::vector<MatterEndPoint *> endpoints;   // index i = endpoint id i+1
   };
   static State &st() { static State s; return s; }
 };
 extern ArduinoMatter Matter;
 
-inline void MatterEndPoint::registerEndpoint(const char *k) {
+#if defined(CONFIG_IDF_TARGET_ESP32H2)
+#define CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT 7
+#else
+#define CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT 32
+#endif
+
+inline bool MatterEndPoint::registerEndpoint(const char *k) {
+  auto &st = ArduinoMatter::st();
+  if ((int)st.endpoints.size() + 1 >= CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT) {   // +1: root endpoint 0
+    printf("E data_model: Dynamic endpoint count cannot be greater than CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT:%d\n",
+           CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT);
+    ++st.failedEndpoints;
+    return false;
+  }
   kind = k;
-  ArduinoMatter::st().endpoints.push_back(this);
-  endpoint_id = (uint16_t)ArduinoMatter::st().endpoints.size();
+  st.endpoints.push_back(this);
+  endpoint_id = (uint16_t)st.endpoints.size();
+  return true;
 }
 
 // --- onboarding payload (Matter Core Spec §5.1), Arduino test VID/PID

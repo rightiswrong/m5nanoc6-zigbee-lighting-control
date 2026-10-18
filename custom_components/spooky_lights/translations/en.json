@@ -23,12 +23,12 @@
       },
       "matter": {
         "title": "Matter light found",
-        "description": "Found the colour light, {switches} of {effects} effect switches and {extras} of {extras_total} extra controls by their Matter endpoint numbers. Press Submit to haunt it. The raw effect switches and helper dimmers will be hidden from the device page — Spooky Lights shows them as an effect list, speed, output and spotlight controls instead."
+        "description": "Found the colour light, the effect control and {extras} of {extras_total} extra controls by their Matter endpoint numbers. Press Submit to haunt it. The raw helper dimmers and lux sensor will be hidden from the device page — Spooky Lights shows them as an effect list, speed, output, spotlight and LED-count controls instead."
       }
     },
     "abort": {
       "already_configured": "This NanoC6 is already haunted by Spooky Lights.",
-      "not_spooky_matter": "This Matter device doesn't look like a Spooky light (no colour light on endpoint 1 or no effect switches on endpoints 2–12). Is it running the Spooky Lights Matter firmware?"
+      "not_spooky_matter": "This Matter device doesn't look like a Spooky light (no colour light on endpoint 1 or no effect control on endpoint 2). Is it running Spooky Lights 1.1.1 or newer? Lights paired with 1.1.0 need a factory flash and a new pairing."
     }
   },
   "options": {
@@ -47,7 +47,7 @@
       },
       "rescan": {
         "title": "Re-scan Matter endpoints",
-        "description": "Map the light's entities again from its Matter endpoints (useful after re-commissioning it)."
+        "description": "Map the light's entities again from its Matter endpoints (after re-commissioning it, or after updating from firmware 1.1.0)."
       }
     }
   },

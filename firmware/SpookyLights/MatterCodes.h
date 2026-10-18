@@ -36,6 +36,20 @@ constexpr uint8_t BAND_MAX_VALUE = 26;          // 10 + 9·26 = 244 ≤ 254
 uint8_t bandToLevel(uint8_t value);
 uint8_t levelToBand(uint8_t level);
 
+// The "setup" endpoint packs output mode and manual LED count into one value
+// (output·25 + manual, 0..99) on a finer band: value v ↔ level 10 + 2·v.
+// Home Assistant converts levels exactly (every level 1..254 survives its
+// brightness round trip), and ±1 level of slop still decodes correctly.
+constexpr uint8_t FINE_OFFSET = 10;
+constexpr uint8_t FINE_STEP = 2;
+constexpr uint8_t FINE_MAX_VALUE = 99;          // 10 + 2·99 = 208
+constexpr uint8_t SETUP_STRIDE = 25;            // manual count 0..24 per output mode
+uint8_t fineToLevel(uint8_t value);
+uint8_t levelToFine(uint8_t level);
+inline uint8_t packSetup(uint8_t output, uint8_t manual) { return (uint8_t)(output * SETUP_STRIDE + manual); }
+inline uint8_t setupOutput(uint8_t packed) { return packed / SETUP_STRIDE; }
+inline uint8_t setupManual(uint8_t packed) { return packed % SETUP_STRIDE; }
+
 // Effect speed 1..100 ↔ level 1..254 (so "brightness %" ≈ speed).
 uint8_t speedToLevel(uint8_t speed);
 uint8_t levelToSpeed(uint8_t level);

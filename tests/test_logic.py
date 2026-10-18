@@ -150,48 +150,59 @@ class MatterMappingTests(unittest.TestCase):
 
     def test_endpoint_plan_matches_firmware(self):
         src = (FW / "TransportMatter.cpp").read_text()
-        self.assertIn("MatterOnOffPlugin fxSwitch[FX_COUNT];", src)
-        # speed / output / spotlight / manual follow the effect switches, then the count sensor
-        self.assertEqual(logic.MATTER_EP_SPEED, 2 + len(logic.EFFECTS))
-        self.assertEqual(logic.MATTER_EP_COUNT, logic.MATTER_EP_SPEED + 4)
-        endpoints = {"light", "speedEp", "outputEp", "spotEp", "manualEp", "countEp", "fxSwitch[i]"}
-        order = [m for m in re.findall(r"^\s+([\w\[\]]+)\.begin\(", src, re.M) if m in endpoints]
-        self.assertEqual(order, ["light", "fxSwitch[i]", "speedEp", "outputEp", "spotEp", "manualEp", "countEp"])
+        endpoints = {"light": 1, "effectEp": 2, "speedEp": 3, "spotEp": 4, "setupEp": 5, "countEp": 6}
+        order = [m for m in re.findall(r"^\s+(?:ok \+= |if \(!)?(\w+)\.begin\(", src, re.M) if m in endpoints]
+        self.assertEqual(order, list(endpoints))  # creation order = endpoint numbers
+        self.assertEqual(
+            [logic.MATTER_EP_LIGHT, logic.MATTER_EP_EFFECT, logic.MATTER_EP_SPEED, logic.MATTER_EP_SPOTLIGHT,
+             logic.MATTER_EP_SETUP, logic.MATTER_EP_COUNT],
+            list(endpoints.values()),
+        )  # fmt: skip
+        # The ESP32-H2 Matter library allows 7 endpoints including the root.
+        self.assertLessEqual(len(endpoints) + 1, 7)
+        self.assertIn("MATTER_APP_ENDPOINTS = 6", src)
 
-    def test_guess_matter_role(self):
+    def test_guess_matter_roles(self):
         cases = [
-            ("light", f"{MATTER_NODE}-1-MatterLight-6-0", (logic.ROLE_LIGHT, None)),
-            ("switch", f"{MATTER_NODE}-2-MatterPlug-6-0", (logic.CONF_EFFECT_SWITCHES, 0)),
-            ("switch", f"{MATTER_NODE}-12-MatterPlug-6-0", (logic.CONF_EFFECT_SWITCHES, logic.EFFECT_DEMO)),
-            ("light", f"{MATTER_NODE}-13-MatterLight-6-0", (logic.ROLE_SPEED, None)),
-            ("light", f"{MATTER_NODE}-14-MatterLight-6-0", (logic.ROLE_OUTPUT, None)),
-            ("light", f"{MATTER_NODE}-15-MatterLight-6-0", (logic.ROLE_SPOTLIGHT, None)),
-            ("light", f"{MATTER_NODE}-16-MatterLight-6-0", (logic.ROLE_MANUAL, None)),
-            ("sensor", f"{MATTER_NODE}-17-LightSensor-1024-0", (logic.ROLE_COUNT, None)),
+            ("light", f"{MATTER_NODE}-1-MatterLight-6-0", (logic.ROLE_LIGHT,)),
+            ("light", f"{MATTER_NODE}-2-MatterLight-6-0", (logic.ROLE_EFFECT,)),
+            ("light", f"{MATTER_NODE}-3-MatterLight-6-0", (logic.ROLE_SPEED,)),
+            ("light", f"{MATTER_NODE}-4-MatterLight-6-0", (logic.ROLE_SPOTLIGHT,)),
+            ("light", f"{MATTER_NODE}-5-MatterLight-6-0", (logic.ROLE_OUTPUT, logic.ROLE_MANUAL)),
+            ("sensor", f"{MATTER_NODE}-6-LightSensor-1024-0", (logic.ROLE_COUNT,)),
         ]
         for domain, uid, want in cases:
             with self.subTest(uid=uid):
-                self.assertEqual(logic.guess_matter_role(domain, uid), want)
+                self.assertEqual(logic.guess_matter_roles(domain, uid), want)
         # things that aren't ours
-        self.assertIsNone(logic.guess_matter_role("button", f"{MATTER_NODE}-1-IdentifyButton-3-1"))
-        self.assertIsNone(logic.guess_matter_role("sensor", f"{MATTER_NODE}-0-MatterUpdate-40-10"))
-        self.assertIsNone(logic.guess_matter_role("switch", f"{MATTER_NODE}-13-MatterPlug-6-0"))
-        self.assertIsNone(logic.guess_matter_role("light", f"{IEEE}-10"))
+        self.assertEqual(logic.guess_matter_roles("button", f"{MATTER_NODE}-1-IdentifyButton-3-1"), ())
+        self.assertEqual(logic.guess_matter_roles("sensor", f"{MATTER_NODE}-0-MatterUpdate-40-10"), ())
+        self.assertEqual(logic.guess_matter_roles("switch", f"{MATTER_NODE}-2-MatterPlug-6-0"), ())
+        self.assertEqual(logic.guess_matter_roles("light", f"{IEEE}-10"), ())
 
     def test_band_constants_match_firmware(self):
         hdr = (FW / "MatterCodes.h").read_text()
-        consts = {k: int(v) for k, v in re.findall(r"constexpr uint8_t (BAND_\w+) = (\d+);", hdr)}
+        consts = {k: int(v) for k, v in re.findall(r"constexpr uint8_t ((?:BAND|FINE|SETUP)_\w+) = (\d+);", hdr)}
         self.assertEqual(consts, {"BAND_OFFSET": logic.BAND_OFFSET, "BAND_STEP": logic.BAND_STEP,
-                                  "BAND_MAX_VALUE": logic.BAND_MAX_VALUE})  # fmt: skip
+                                  "BAND_MAX_VALUE": logic.BAND_MAX_VALUE, "FINE_OFFSET": logic.FINE_OFFSET,
+                                  "FINE_STEP": logic.FINE_STEP, "FINE_MAX_VALUE": logic.FINE_MAX_VALUE,
+                                  "SETUP_STRIDE": logic.SETUP_STRIDE})  # fmt: skip
 
     def test_values_survive_home_assistant_brightness(self):
+        for level in range(1, 255):  # HA's level ↔ brightness conversion is exact
+            self.assertEqual(logic.ha_level_for_brightness(logic.ha_brightness_for_level(level)), level)
         for v in range(logic.BAND_MAX_VALUE + 1):
             b = logic.ha_brightness_for_level(logic.band_to_level(v))
             self.assertEqual(logic.band_from_brightness(v != 0, b), v)
         for speed in range(1, 101):
             b = logic.ha_brightness_for_level(logic.speed_to_level(speed))
             self.assertEqual(logic.speed_from_brightness(b), speed)
+        for output in range(len(logic.OUTPUT_MODES)):
+            for manual in range(logic.MAX_CHAIN + 1):
+                b = logic.ha_brightness_for_level(logic.fine_to_level(logic.pack_setup(output, manual)))
+                self.assertEqual(logic.setup_from_brightness(b), (output, manual))
         self.assertEqual(logic.band_from_brightness(False, 200), 0)
+        self.assertLessEqual(logic.pack_setup(len(logic.OUTPUT_MODES) - 1, logic.MAX_CHAIN), logic.FINE_MAX_VALUE)
 
     def test_count_from_lux(self):
         self.assertEqual(logic.count_from_lux("1.0"), 0)

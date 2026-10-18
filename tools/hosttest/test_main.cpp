@@ -300,6 +300,15 @@ static void testMatterCodes() {
     speedErr += abs(viaPct - sp) > 1;
   }
   CHECK(speedErr == 0, "%d speed round-trip errors", speedErr);
+  int fineErr = 0, levelErr = 0;
+  for (int v = 0; v <= mcodes::FINE_MAX_VALUE; ++v) {
+    int L = mcodes::fineToLevel(v);
+    fineErr += mcodes::levelToFine(L) != v;
+    fineErr += mcodes::levelToFine(L - 1) != v;                                              // ±1 level of slop
+    fineErr += mcodes::levelToFine(haLevelFromBrightness(haBrightnessFromLevel(L))) != v;   // through HA
+  }
+  for (int L = 1; L <= 254; ++L) levelErr += haLevelFromBrightness(haBrightnessFromLevel(L)) != L;
+  CHECK(fineErr == 0 && levelErr == 0, "fine band: %d errors, HA level round trip: %d errors", fineErr, levelErr);
 
   char buf[64];
   CHECK(mcodes::payloadFromUrl("https://project-chip.github.io/connectedhomeip/qrcode.html?data=MT%3AY.K9042C00KA0648G00", buf,
@@ -397,25 +406,22 @@ static void testEndToEnd(const char *) {
 }
 #else
 static MatterEndPoint *ep(int id) { return ArduinoMatter::st().endpoints[id - 1]; }
-static MatterOnOffPlugin *fxSw(int effect) { return static_cast<MatterOnOffPlugin *>(ep(2 + effect)); }
 static MatterDimmablePlugin *dim(int id) { return static_cast<MatterDimmablePlugin *>(ep(id)); }
-enum { MEP_LIGHT = 1, MEP_SPEED = 2 + FX_COUNT, MEP_OUTPUT, MEP_SPOT, MEP_MANUAL, MEP_COUNT };
+enum { MEP_LIGHT = 1, MEP_EFFECT, MEP_SPEED, MEP_SPOT, MEP_SETUP, MEP_COUNT };
 
-static int switchesOn() {
-  int on = 0;
-  for (int i = 0; i < FX_COUNT; ++i) on += fxSw(i)->getOnOff();
-  return on;
+// What the HA integration does: brightness for an exact level (HA's level ↔
+// brightness conversion round-trips every level, see testMatterCodes).
+static void haSetLevel(int id, int level) {
+  dim(id)->fromController(true, (uint8_t)haLevelFromBrightness(haBrightnessFromLevel(level)));
 }
-
-// What the HA integration does to set a banded value: brightness for the level.
 static void haSetBand(int id, int value) {
   if (value == 0) { dim(id)->fromController(false, dim(id)->getLevel()); return; }
-  int level = haLevelFromBrightness(haBrightnessFromLevel(mcodes::bandToLevel(value)));
-  dim(id)->fromController(true, (uint8_t)level);
+  haSetLevel(id, mcodes::bandToLevel(value));
 }
+static int effectShown() { return dim(MEP_EFFECT)->getOnOff() ? mcodes::levelToBand(dim(MEP_EFFECT)->getLevel()) : 0; }
 
 static void testEndToEnd(const char *qrOut) {
-  printf("[e2e/matter] boot with 3 modules: endpoints, setup code, QR on the serial port\n");
+  printf("[e2e/matter] boot with 3 modules: endpoint budget, setup code, QR on the serial port\n");
   Serial.verbose = false;
   std::string log;
   Serial.log = &log;
@@ -425,22 +431,22 @@ static void testEndToEnd(const char *qrOut) {
   setup();
   runLoopMs(100);
   auto &M = ArduinoMatter::st();
+  CHECK(M.failedEndpoints == 0, "%d endpoints over the %d-endpoint limit of this chip", M.failedEndpoints,
+        CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT);
+  CHECK(M.endpoints.size() + 1 <= 7, "%zu endpoints + root won't fit an ESP32-H2 (max 7)", M.endpoints.size());
   CHECK(M.endpoints.size() == (size_t)MEP_COUNT, "expected %d endpoints, got %zu", MEP_COUNT, M.endpoints.size());
-  CHECK(strcmp(ep(MEP_LIGHT)->kind, "color_light") == 0, "endpoint 1 is %s", ep(MEP_LIGHT)->kind);
-  int badTags = 0;
-  for (int i = 0; i < FX_COUNT; ++i)
-    badTags += strcmp(ep(2 + i)->kind, "onoff_plugin") != 0 || ep(2 + i)->tagList.size() != 1 ||
-               strcmp(ep(2 + i)->tagList[0].label, EFFECT_NAMES[i]) != 0;
-  CHECK(badTags == 0, "%d effect switches mis-built or mis-tagged", badTags);
-  for (int id = MEP_SPEED; id <= MEP_MANUAL; ++id) CHECK(strcmp(ep(id)->kind, "dimmable_plugin") == 0, "ep %d is %s", id, ep(id)->kind);
-  CHECK(strcmp(ep(MEP_COUNT)->kind, "light_sensor") == 0, "ep %d is %s", MEP_COUNT, ep(MEP_COUNT)->kind);
+  CHECK(log.find("ERROR") == std::string::npos, "firmware reported an error at start-up");
+  CHECK(log.find("free heap") != std::string::npos, "free heap not logged");
+  const char *kinds[] = {"", "color_light", "dimmable_plugin", "dimmable_plugin", "dimmable_plugin", "dimmable_plugin",
+                         "light_sensor"};
+  for (int id = 1; id <= MEP_COUNT; ++id) CHECK(strcmp(ep(id)->kind, kinds[id]) == 0, "ep %d is %s", id, ep(id)->kind);
   CHECK(M.network == MATTER_NETWORK_THREAD, "network should be Thread, is %d", (int)M.network);
   CHECK(M.started && M.vendor == "SpookyLab" && M.product == "Spooky Lights " BOARD_NAME, "identity %s / %s", M.vendor.c_str(),
         M.product.c_str());
   CHECK(mcodes::passcodeValid(M.passcode) && M.passcode != 20202021u && M.discriminator <= 0xFFF, "setup code %u / %u",
         M.passcode, M.discriminator);
   CHECK(Preferences::big()["pin"] == M.passcode && Preferences::big()["disc"] == M.discriminator, "setup code not persisted");
-  CHECK(fxSw(g_show.get().effect)->getOnOff() && switchesOn() == 1, "initial effect switch wrong");
+  CHECK(effectShown() == g_show.get().effect, "initial effect %d published as %d", g_show.get().effect, effectShown());
   auto *count = static_cast<MatterLightSensor *>(ep(MEP_COUNT));
   CHECK(count->haLux() == 4.0, "HA should show 3 LEDs as 4.0 lx, shows %.1f", count->haLux());
 
@@ -454,7 +460,7 @@ static void testEndToEnd(const char *qrOut) {
   runLoopMs(MATTER_QR_REPEAT_MS + 100);
   CHECK(log.find("ready to pair", firstBanner + 1) != std::string::npos, "pairing info not repeated while uncommissioned");
 
-  printf("[e2e/matter] commissioned; hot-plug 3 → 5; HA picks effects with switches\n");
+  printf("[e2e/matter] commissioned; hot-plug 3 → 5; HA picks effects on the effect dimmer\n");
   M.commissioned = M.online = true;
   log.clear();
   runLoopMs(500);
@@ -465,41 +471,52 @@ static void testEndToEnd(const char *qrOut) {
   CHECK(count->haLux() == 6.0, "after plug-in HA should show 6.0 lx, shows %.1f", count->haLux());
   CHECK(litModules() == 5, "all 5 modules should be lit, %d are", litModules());
 
-  fxSw(FX_LIGHTNING)->fromController(true);
-  runLoopMs(60);
-  CHECK(g_show.get().effect == FX_LIGHTNING && switchesOn() == 1 && fxSw(FX_LIGHTNING)->getOnOff(),
-        "radio-button behaviour broken (effect %u, %d on)", g_show.get().effect, switchesOn());
-  fxSw(FX_LIGHTNING)->fromController(false);
-  runLoopMs(60);
-  CHECK(g_show.get().effect == FX_SOLID && fxSw(FX_SOLID)->getOnOff() && switchesOn() == 1,
-        "switching the active effect off should fall back to Solid");
-  fxSw(FX_SOLID)->fromController(false);
-  runLoopMs(60);
-  CHECK(g_show.get().effect == FX_SOLID && fxSw(FX_SOLID)->getOnOff(), "Solid should switch itself back on");
+  int effectErr = 0;
+  for (int fx = 0; fx < FX_COUNT; ++fx) {
+    haSetBand(MEP_EFFECT, fx);
+    runLoopMs(40);
+    effectErr += g_show.get().effect != fx || effectShown() != fx;
+  }
+  CHECK(effectErr == 0, "%d effects did not round-trip through the effect dimmer", effectErr);
+  dim(MEP_EFFECT)->fromController(true, (uint8_t)(mcodes::bandToLevel(FX_LIGHTNING) + 3));   // a sloppy controller
+  runLoopMs(40);
+  CHECK(g_show.get().effect == FX_LIGHTNING && dim(MEP_EFFECT)->getLevel() == mcodes::bandToLevel(FX_LIGHTNING),
+        "off-band level should decode and snap back to the band");
+  dim(MEP_EFFECT)->fromController(false, dim(MEP_EFFECT)->getLevel());
+  runLoopMs(40);
+  CHECK(g_show.get().effect == FX_SOLID, "effect dimmer off should mean Solid");
 
-  fxSw(FX_DEMO_REEL)->fromController(true);
+  haSetBand(MEP_EFFECT, FX_DEMO_REEL);
   log.clear();
   runLoopMs(8000);
   CHECK(log.find("[demo] 1/12 Roll call") != std::string::npos && log.find("[demo] 2/12 Colour wheel") != std::string::npos,
         "demo scenes not announced");
 
-  printf("[e2e/matter] dimmer endpoints carry speed / output / spotlight / manual count\n");
+  printf("[e2e/matter] speed / spotlight / setup (output + manual count) endpoints\n");
   dim(MEP_SPEED)->fromController(true, (uint8_t)haLevelFromBrightness(204));   // HA "80 %"
   runLoopMs(60);
   CHECK(g_show.get().speed == 80, "speed %u, expected 80", g_show.get().speed);
   CHECK(dim(MEP_SPEED)->getLevel() == mcodes::speedToLevel(80), "speed level not normalised");
   haSetBand(MEP_SPOT, 2);
-  haSetBand(MEP_MANUAL, 4);
-  haSetBand(MEP_OUTPUT, OUT_GROVE);
+  int setupErr = 0;
+  for (int out = 0; out < OUT_COUNT; ++out)
+    for (int man = 0; man <= MAX_CHAIN; ++man) {
+      haSetLevel(MEP_SETUP, mcodes::fineToLevel(mcodes::packSetup(out, man)));
+      ShowState st = g_show.get();
+      setupErr += st.output != out || st.manualCount != man;
+    }
+  CHECK(setupErr == 0, "%d output/manual combinations did not decode", setupErr);
+  haSetLevel(MEP_SETUP, mcodes::fineToLevel(mcodes::packSetup(OUT_GROVE, 4)));
   runLoopMs(60);
   ShowState s = g_show.get();
-  CHECK(s.spotlight == 2 && s.manualCount == 4 && s.output == OUT_GROVE, "bands decoded to spot %u manual %u output %u",
-        s.spotlight, s.manualCount, s.output);
+  CHECK(s.spotlight == 2 && s.manualCount == 4 && s.output == OUT_GROVE, "decoded spot %u manual %u output %u", s.spotlight,
+        s.manualCount, s.output);
   CHECK(effectiveChainCount(s) == 4, "manual count not used");
-  haSetBand(MEP_MANUAL, 0);
+  haSetLevel(MEP_SETUP, mcodes::fineToLevel(0));
   haSetBand(MEP_SPOT, 0);
   runLoopMs(60);
-  CHECK(g_show.get().manualCount == 0 && g_show.get().spotlight == 0 && !dim(MEP_SPOT)->getOnOff(), "turning a band off → 0");
+  CHECK(g_show.get().manualCount == 0 && g_show.get().output == OUT_AUTO && g_show.get().spotlight == 0 && !dim(MEP_SPOT)->getOnOff(),
+        "resetting setup / spotlight");
 
   auto *lightEp = static_cast<MatterColorLight *>(ep(MEP_LIGHT));
   lightEp->fromController(true, espHsvColor_t{0, 254, 200});      // red, level 200
@@ -511,11 +528,11 @@ static void testEndToEnd(const char *qrOut) {
   runLoopMs(FADE_MS + 200);
   CHECK(litModules() == 0, "light off but %d modules still lit", litModules());
 
-  printf("[e2e/matter] button: click → next effect, published as switches; long press → on/off\n");
+  printf("[e2e/matter] button: click → next effect, published on the effect dimmer; long press → on/off\n");
   uint8_t before = g_show.get().effect;
   sim.buttonLevel = LOW; runLoopMs(200); sim.buttonLevel = HIGH; runLoopMs(60);
   uint8_t now = g_show.get().effect;
-  CHECK(now == (before + 1) % FX_COUNT && fxSw(now)->getOnOff() && switchesOn() == 1, "button effect not published");
+  CHECK(now == (before + 1) % FX_COUNT && effectShown() == now, "button effect not published (%u vs %d)", now, effectShown());
   CHECK(lightEp->getOnOff(), "light-on from the button not published");
   sim.buttonLevel = LOW; runLoopMs(1500); sim.buttonLevel = HIGH; runLoopMs(60);
   CHECK(!g_show.get().on && !lightEp->getOnOff(), "long press should switch off and publish");

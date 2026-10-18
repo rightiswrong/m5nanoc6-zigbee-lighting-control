@@ -103,7 +103,7 @@ Open [ESPHome Web](https://web.esphome.io) in Chrome or Edge, connect the board
 by USB-C, choose **Install** and pick the file. Or from a terminal:
 
 ```bash
-esptool --chip esp32c6 write_flash 0x0 spooky-nanoc6-zigbee-v1.1.0-factory.bin   # esp32h2 for the NanoH2
+esptool --chip esp32c6 write_flash 0x0 spooky-nanoc6-zigbee-v1.1.1-factory.bin   # esp32h2 for the NanoH2
 ```
 
 A `-factory.bin` rewrites the whole flash, **including the Zigbee network /
@@ -195,7 +195,7 @@ pick the light:
 | **Chain change** (event) | integration | Fires `led_added` / `led_removed` with `previous`, `current`, `pixels` |
 | **Jump scare** (button) | integration | 8 s of full-brightness Lightning Storm, then restores everything |
 | Grove LEDs detected, Manual LED count, … | ZHA / Z2M | The raw Zigbee firmware controls |
-| Effect switches, helper dimmers, lux sensor | Matter | The raw Matter endpoints. Spooky Lights hides them from the device page, since it shows them better (see [MATTER.md](docs/MATTER.md#what-the-light-exposes-over-matter)) |
+| Effect / speed / spotlight / setup dimmers, lux sensor | Matter | The raw Matter endpoints. Spooky Lights hides them from the device page, since it shows them better (see [MATTER.md](docs/MATTER.md#what-the-light-exposes-over-matter)) |
 
 A bus event `spooky_lights_chain_changed` is fired too, for automations that
 prefer event triggers.
@@ -270,16 +270,18 @@ because Matter's `attribute::update()` can echo back into the callbacks, so
 those are written to be idempotent. Settings are saved to NVS 5 s after the last
 change to spare the flash.
 
-**2½ · Matter.** Matter has no "number" device, so the firmware uses what every
-controller understands:
+**2½ · Matter.** The ESP32-H2's Matter library allows only seven endpoints,
+root included. Matter also has no "number" device. So the firmware packs
+everything into six endpoints every controller understands:
 * a colour light;
-* one on/off switch per effect, radio-button style and tagged with the effect's
-  name;
-* dimmer endpoints whose level carries speed, output, spotlight and manual count
-  in wide bands (*v* ↔ 10 + 9·*v*), which survive Home Assistant's
-  level ↔ brightness rounding;
+* dimmers whose level carries the effect, speed, spotlight pixel and "setup"
+  (output mode and manual LED count), in bands that survive Home Assistant's
+  level ↔ brightness conversion;
 * a light sensor reporting the LED count as count + 1 lux. Lux is the one unit
   HA never converts to imperial.
+
+The host test's Matter stand-in enforces the same per-chip endpoint limits, so a
+design that doesn't fit fails the build instead of a board.
 
 Each light draws a random setup passcode and discriminator on first boot (never
 the shared 20202021 test code), keeps them in flash, and prints its onboarding
@@ -319,8 +321,8 @@ now") at scripted times.
 
 **6 · Home Assistant.** The integration attaches its entities to the same
 device as the ZHA / Z2M / Matter ones, follows their state, and writes back
-through `number.set_value` (Zigbee) or `switch.turn_on` / `light.turn_on`
-(Matter). All transport differences live in two methods, `read()` and
+through `number.set_value` (Zigbee) or `light.turn_on` / `light.turn_off` on
+the dimmer endpoints (Matter). All transport differences live in two methods, `read()` and
 `async_write()`. Matter entities are found by their endpoint number in Home
 Assistant's unique IDs. All the arithmetic it shares with the
 firmware (effect names, output modes, pixel maths) lives in an HA-free
@@ -365,8 +367,9 @@ real ESP32-C6/H2 toolchain, and runs HACS and hassfest validation.
   yet.** The Arduino Matter API, Home Assistant's Matter entity IDs and
   brightness maths were read from their current source code, and the pairing
   codes are checked against the Matter spec's published test vector. But real
-  commissioning, Thread networking and the H2's RAM headroom with 17 Matter
-  endpoints still need a first evening on the bench.
+  commissioning, Thread networking and the H2's RAM headroom still need a first
+  evening on the bench. (1.1.0's 17-endpoint Matter layout crashed the NanoH2 at
+  boot; 1.1.1 fits its 7-endpoint limit and logs free heap for diagnosis.)
 * ⚠️ The NanoH2 Grove pin order comes from M5Unified (it disagrees with M5's docs
   page). With a loopback fitted the firmware finds the right orientation
   itself. Without one, if the string stays dark, swap `PIN_GROVE_CLK` /

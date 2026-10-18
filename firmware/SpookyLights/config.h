@@ -9,7 +9,7 @@
 
 // Keep in sync with custom_components/spooky_lights/manifest.json "version"
 // (the release workflow refuses to publish if they differ from the tag).
-#define FW_VERSION "1.1.0"
+#define FW_VERSION "1.1.1"
 
 // ------------------------------------------------------------ Radio stack
 // Chosen with the Arduino IDE "Zigbee Mode" menu — no code changes needed:

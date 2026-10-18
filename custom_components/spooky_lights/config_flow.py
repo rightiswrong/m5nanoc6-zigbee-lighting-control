@@ -20,7 +20,6 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_DEVICE_ID,
     DOMAIN,
-    EFFECTS,
     ROLE_COUNT,
     ROLE_DOMAINS,
     ROLE_EFFECT,
@@ -31,11 +30,10 @@ from .const import (
     ROLE_SPOTLIGHT,
 )
 from .logic import (
-    CONF_EFFECT_SWITCHES,
     CONF_TRANSPORT,
     TRANSPORT_MATTER,
     TRANSPORT_ZIGBEE,
-    guess_matter_role,
+    guess_matter_roles,
     guess_role,
 )
 
@@ -66,22 +64,14 @@ def guess_entities(hass: HomeAssistant, device_id: str) -> dict[str, str]:
     return found
 
 
-def map_matter_entities(hass: HomeAssistant, device_id: str) -> dict[str, Any]:
-    """Matter: map by endpoint number. Returns role → entity_id plus the effect switch list."""
-    roles: dict[str, Any] = {}
-    switches: list[str] = [""] * len(EFFECTS)
+def map_matter_entities(hass: HomeAssistant, device_id: str) -> dict[str, str]:
+    """Matter: map by endpoint number (role → entity_id)."""
+    roles: dict[str, str] = {}
     for entry in er.async_entries_for_device(er.async_get(hass), device_id, include_disabled_entities=True):
         if entry.platform != "matter":
             continue
-        hit = guess_matter_role(entry.domain, entry.unique_id)
-        if hit is None:
-            continue
-        role, index = hit
-        if role == CONF_EFFECT_SWITCHES and index is not None and index < len(switches):
-            switches[index] = entry.entity_id
-        elif role not in roles:
-            roles[role] = entry.entity_id
-    roles[CONF_EFFECT_SWITCHES] = switches
+        for role in guess_matter_roles(entry.domain, entry.unique_id):
+            roles.setdefault(role, entry.entity_id)
     return roles
 
 
@@ -91,7 +81,7 @@ class SpookyLightsConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._device_id: str | None = None
         self._title = "Spooky Lights"
-        self._matter: dict[str, Any] = {}
+        self._matter: dict[str, str] = {}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
@@ -119,19 +109,13 @@ class SpookyLightsConfigFlow(ConfigFlow, domain=DOMAIN):
                 data={CONF_DEVICE_ID: self._device_id, CONF_TRANSPORT: TRANSPORT_MATTER, **self._matter},
             )
         self._matter = map_matter_entities(self.hass, self._device_id)
-        switches = sum(1 for e in self._matter[CONF_EFFECT_SWITCHES] if e)
-        if ROLE_LIGHT not in self._matter or switches == 0:
+        if ROLE_LIGHT not in self._matter or ROLE_EFFECT not in self._matter:
             return self.async_abort(reason="not_spooky_matter")
         extras = sum(1 for r in OPTIONAL_ROLES if r in self._matter)
         return self.async_show_form(
             step_id="matter",
             data_schema=vol.Schema({}),
-            description_placeholders={
-                "switches": str(switches),
-                "effects": str(len(EFFECTS)),
-                "extras": str(extras),
-                "extras_total": str(len(OPTIONAL_ROLES)),
-            },
+            description_placeholders={"extras": str(extras), "extras_total": str(len(OPTIONAL_ROLES))},
         )
 
     async def async_step_entities(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -180,6 +164,8 @@ class SpookyLightsOptionsFlow(OptionsFlow):
         """Matter: look at the device's endpoints again (e.g. after re-commissioning)."""
         if user_input is not None:
             device_id = self.config_entry.data.get(CONF_DEVICE_ID)
-            mapping = map_matter_entities(self.hass, device_id) if device_id else {}
-            return self.async_create_entry(data=mapping)
+            mapping: dict[str, Any] = dict(map_matter_entities(self.hass, device_id)) if device_id else {}
+            # Clear roles that are gone (and anything left over from older layouts).
+            cleared = {role: "" for role in (*REQUIRED_ROLES, *OPTIONAL_ROLES) if role not in mapping}
+            return self.async_create_entry(data={**cleared, "effect_switches": [], **mapping})
         return self.async_show_form(step_id="rescan", data_schema=vol.Schema({}))
