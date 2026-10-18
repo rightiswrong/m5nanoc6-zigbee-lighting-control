@@ -1,7 +1,9 @@
-# Matter over Thread
+# Matter over Thread (or Wi-Fi)
 
 The same firmware that speaks Zigbee can be built as a **Matter-over-Thread**
-light instead, on the **M5NanoC6** (ESP32-C6).
+light instead, on the **M5NanoC6** (ESP32-C6). There's also a **Matter-over-Wi-Fi**
+build for the NanoC6, if Thread gives you trouble (see
+[Matter over Wi-Fi](#matter-over-wi-fi-no-thread-needed)).
 
 > **NanoH2: Zigbee only.** The ESP32-H2 has the radio for Thread, but not the
 > RAM for Arduino's Matter library. Starting Matter with Bluetooth pairing ran it
@@ -33,7 +35,8 @@ Home Assistant, Apple Home, Google Home and SmartThings.
 ## 1. Flash the Matter build
 
 From the [latest release](../../../releases/latest), take
-`spooky-nanoc6-matter-<version>-factory.bin`. Flash it at `0x0`
+`spooky-nanoc6-matter-<version>-factory.bin` (Thread) or
+`spooky-nanoc6-matter-wifi-<version>-factory.bin` (Wi-Fi). Flash it at `0x0`
 with [ESPHome Web](https://web.esphome.io) or
 `esptool --chip esp32c6 write_flash 0x0 <file>`.
 
@@ -52,7 +55,7 @@ or ESPHome Web's *Logs*). On boot, and every minute until it's paired, the light
 prints:
 
 ```
-  ==== NanoC6 Spooky Lights — ready to pair (Matter) ====
+  ==== NanoC6 Spooky Lights — ready to pair (Matter over Thread) ====
   Home Assistant app: Settings > Devices > Add device > Add Matter device,
   then scan this code. Keep the phone near the light (pairing uses Bluetooth).
 
@@ -97,6 +100,60 @@ blinks until the light is paired and online, then goes dark, and the serial log
 says `commissioned — welcome to the haunted house`.
 
 It appears as **NanoC6 Spooky**, made by SpookyLab.
+
+### Pairing on Android: "Your device requires a Thread border router"
+
+On Android, the HA app hands pairing to **Google Play services**. After the
+Bluetooth step, Play services looks for Thread credentials **in its own store
+on the phone**. That store isn't the same thing as your border router working.
+If it has no credentials for HA's Thread network, you get this message, even
+while other Thread devices run fine. (Devices added through Google Home or an
+Apple hub used *those* credentials.) Fix:
+
+1. HA → **Settings → Devices & services → Thread → Configure**. Your border
+   router's network must be listed and marked **preferred**. If it isn't, use the
+   network's menu to make it preferred.
+2. In the HA app: **Settings → Companion app → Troubleshooting → Sync Thread
+   credentials**. It should say the credentials were added or are already
+   there. If it says your phone uses another preferred network, see the note below.
+3. Pair again. The phone should now go past Bluetooth without the message.
+
+> **The sync says your phone prefers a different Thread network** (common if
+> you also own a Google Nest hub or another Google border router): Android keeps
+> one preferred network, and it isn't HA's. Two ways round it. Pair this light
+> from **Google Home** instead, which uses Google's network, then share it to HA
+> (*Google Home → the device → Settings → Linked Matter apps & services → Home
+> Assistant*). Or skip Thread entirely with the Wi-Fi build below.
+
+### Reading the pairing log
+
+The serial monitor shows each pairing stage. When an attempt fails, the last
+lines say why:
+
+```
+[matter] a phone connected over Bluetooth — pairing…
+[matter] pairing session started (setup code check)
+[matter] Bluetooth closed (normal: the rest happens over Thread)
+[matter] joined the Thread network            ← missing? the phone sent no (valid) Thread credentials
+[matter] controller credentials saved
+[matter] commissioned — welcome to the haunted house
+```
+
+The QR code isn't re-printed while a phone is pairing. After a failed attempt it
+comes back within a few seconds, with a short diagnosis above it.
+
+## Matter over Wi-Fi (no Thread needed)
+
+The NanoC6 also has 2.4 GHz Wi-Fi. Flash
+`spooky-nanoc6-matter-wifi-<version>-factory.bin` and pair exactly as above.
+The phone hands over **the Wi-Fi network it's on**, so put the phone on your
+**2.4 GHz** network (the C6 has no 5 GHz). After that, Home Assistant talks to
+the light over your LAN. No border router, no Thread credentials. Everything
+else, including the endpoints, the integration and the QR code, is identical.
+
+The trade-offs: Wi-Fi draws more power than Thread (fine for a USB-powered
+light), and the light isn't part of your Thread mesh. Building it yourself: set
+`MATTER_USE_WIFI 1` in `config.h`.
 
 ## 4. Add the Spooky Lights integration
 
@@ -154,11 +211,13 @@ levels.
 
 | Symptom | Fix |
 |---|---|
-| "Thread network not found" / pairing stalls after Bluetooth | The phone has no Thread credentials. Sync them (Companion app → Troubleshooting), and check the Thread integration shows a **preferred** network. |
+| Android: *"Your device requires a Thread border router"*, or pairing stalls after Bluetooth | The phone has no Thread credentials for HA's network. See [Pairing on Android](#pairing-on-android-your-device-requires-a-thread-border-router), or use the Wi-Fi build. The serial log shows `Bluetooth worked, but the light never joined Thread`. |
+| Serial: `Failsafe timer expired` / `Commissioning failed (attempt 1): 32` | Pairing timed out (0x32 = timeout). Nothing is saved, so just try again once the cause is fixed. The `[matter]` lines just above say which stage it reached. `ble_gap_terminate() failed: 48` next to it is harmless: the phone had already closed Bluetooth. |
+| Serial lines all start with the same `E (…) chip[..]:` | Your serial monitor repeating the previous log prefix. It's cosmetic. |
 | The phone never sees the light | Bluetooth on, phone close. The light only advertises while it's **not** paired. If it was paired before, hold the button 5 s (LED turns red, then release) to decommission it. |
 | Paired, then "unavailable" | IPv6 or mDNS blocked between HA and the border router (VLANs, client isolation, multicast filtering). |
 | Re-flashed, but it still thinks it's paired | Flashing an `-app.bin` keeps the pairing. Use the `-factory.bin`, or hold the button 5 s. |
 | Serial says *this build has no Matter-over-Thread* | The Arduino core is too old. Use esp32 by Espressif ≥ 3.3.12. |
 | Serial says *ERROR: only N of 6 endpoints could be created*, or `Dynamic endpoint count cannot be greater than …` | Something added endpoints beyond the library's limit. Undo the change, or send the log. |
 | Crash with `Failed to allocate memory`, or `abort()` at start-up | Out of RAM. On a NanoH2 that's expected (use Zigbee). On a NanoC6, send the serial log: it prints *free heap* before and after start-up. |
-| I want Matter over Wi-Fi (NanoC6 only) | Set `MATTER_USE_WIFI 1` in `config.h` and rebuild. The phone then hands over your Wi-Fi credentials instead. |
+| I want Matter over Wi-Fi | Flash the `nanoc6-matter-wifi` build (or set `MATTER_USE_WIFI 1` in `config.h`). Phone on 2.4 GHz Wi-Fi while pairing. |

@@ -8,7 +8,7 @@ every effect to fit.
 
 Pick your radio when you flash it:
 * **Zigbee** (NanoC6 or NanoH2): a Zigbee router for ZHA or Zigbee2MQTT.
-* **Matter over Thread** (NanoC6): pair it by **scanning a QR code**. Works with
+* **Matter over Thread or Wi-Fi** (NanoC6): pair it by **scanning a QR code**. Works with
   Home Assistant, Apple Home, Google Home and SmartThings. The NanoH2 has too
   little RAM for Arduino's Matter library, so it's Zigbee-only.
 
@@ -93,18 +93,18 @@ everything still works: set the count by hand from Home Assistant, and set
 ### 2. Flash the firmware
 
 **Option A: prebuilt binary (fastest).** Every [release](https://github.com/rightiswrong/m5nanoc6-zigbee-lighting-control/releases/latest)
-has three images:
+has four images:
 
-| Board | Zigbee (ZHA / Z2M) | Matter over Thread (QR code) |
-|---|---|---|
-| M5NanoC6 | `spooky-nanoc6-zigbee-<ver>-factory.bin` | `spooky-nanoc6-matter-<ver>-factory.bin` |
-| M5NanoH2 | `spooky-nanoh2-zigbee-<ver>-factory.bin` | — (not enough RAM, see below) |
+| Board | Zigbee (ZHA / Z2M) | Matter over Thread (QR code) | Matter over Wi-Fi (QR code, no border router) |
+|---|---|---|---|
+| M5NanoC6 | `spooky-nanoc6-zigbee-<ver>-factory.bin` | `spooky-nanoc6-matter-<ver>-factory.bin` | `spooky-nanoc6-matter-wifi-<ver>-factory.bin` |
+| M5NanoH2 | `spooky-nanoh2-zigbee-<ver>-factory.bin` | — (not enough RAM, see below) | — (no Wi-Fi) |
 
 Open [ESPHome Web](https://web.esphome.io) in Chrome or Edge, connect the board
 by USB-C, choose **Install** and pick the file. Or from a terminal:
 
 ```bash
-esptool --chip esp32c6 write_flash 0x0 spooky-nanoc6-zigbee-v1.1.2-factory.bin   # esp32h2 for the NanoH2
+esptool --chip esp32c6 write_flash 0x0 spooky-nanoc6-zigbee-v1.1.3-factory.bin   # esp32h2 for the NanoH2
 ```
 
 A `-factory.bin` rewrites the whole flash, **including the Zigbee network /
@@ -147,13 +147,15 @@ then release to factory-reset Zigbee.
 `<z2m data>/external_converters/` and restart Z2M before pairing.
 
 ### 3b. Pair over Matter (QR code)
-You need a **Thread border router**, the HA **Matter** integration, and the HA
-Companion app (details in [`docs/MATTER.md`](docs/MATTER.md)). The light prints
+You need a **Thread border router** (or flash the Wi-Fi build), the HA
+**Matter** integration, and the HA Companion app (details in
+[`docs/MATTER.md`](docs/MATTER.md); Android users, read *Pairing on Android*
+there first). The light prints
 its **own** pairing QR code on the serial monitor at boot, and every minute
 until it's paired:
 
 ```
-  ==== NanoC6 Spooky Lights — ready to pair (Matter) ====
+  ==== NanoC6 Spooky Lights — ready to pair (Matter over Thread) ====
       █████████████████████████████
       ██ ▄▄▄▄▄ █  ▀▀█▀▄███ ▄▄▄▄▄ ██
       …
@@ -369,7 +371,7 @@ The QR code each Matter variant prints on its "serial monitor" is rebuilt from
 the text and decoded by an independent decoder ([jsQR](https://github.com/cozmo/jsQR)).
 The payload must carry exactly the passcode the firmware stored.
 
-GitHub Actions does all of that too, compiles all three images with Espressif's
+GitHub Actions does all of that too, compiles all four images with Espressif's
 real ESP32-C6/H2 toolchain, and runs HACS and hassfest validation.
 
 ## Status: what has and hasn't been verified
@@ -379,12 +381,13 @@ real ESP32-C6/H2 toolchain, and runs HACS and hassfest validation.
 * ❌ **Matter on the NanoH2 doesn't fit** (see *Why no Matter on the NanoH2?*).
   1.1.0 and 1.1.1 crashed at boot on real hardware; from 1.1.2 the NanoH2 is
   Zigbee-only.
-* ⚠️ **Matter on the NanoC6 and Zigbee on the NanoH2 haven't been run on real
-  hardware yet.** The Arduino Matter API, Home Assistant's Matter entity IDs and
-  brightness maths were read from their current source code, and the pairing
-  codes are checked against the Matter spec's published test vector. The C6
-  has about twice the H2's free RAM and logs its free heap at start-up, but real
-  commissioning and Thread networking still need a first evening on the bench.
+* ✅ Zigbee on the NanoH2 runs on real hardware.
+* ⚠️ **Matter on the NanoC6** starts on real hardware with plenty of RAM (~120 KB
+  free) and the phone pairs over Bluetooth. The first real pairing attempt (1.1.2)
+  timed out after that, at the Thread hand-over: the Android phone had no Thread
+  credentials for HA's network. From 1.1.3 the log names each pairing stage and
+  explains failures, and a Matter-over-Wi-Fi build skips Thread. A completed
+  Matter pairing still hasn't been seen on real hardware.
 * ⚠️ The NanoH2 Grove pin order comes from M5Unified (it disagrees with M5's docs
   page). With a loopback fitted the firmware finds the right orientation
   itself. Without one, if the string stays dark, swap `PIN_GROVE_CLK` /

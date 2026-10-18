@@ -196,6 +196,14 @@ public:
 };
 
 // ------------------------------------------------------------------ Matter
+namespace chip { namespace DeviceLayer { struct ChipDeviceEvent { uint16_t Type; }; } }
+// Same names as the real enum (values are arbitrary here).
+enum matterEvent_t : uint16_t {
+  MATTER_WIFI_CONNECTIVITY_CHANGE = 0x8001, MATTER_THREAD_CONNECTIVITY_CHANGE, MATTER_CHIPOBLE_CONNECTION_ESTABLISHED,
+  MATTER_CHIPOBLE_CONNECTION_CLOSED, MATTER_THREAD_STATE_CHANGE, MATTER_COMMISSIONING_COMPLETE, MATTER_FAIL_SAFE_TIMER_EXPIRED,
+  MATTER_SECURE_SESSION_ESTABLISHED, MATTER_COMMISSIONING_SESSION_STARTED, MATTER_COMMISSIONING_SESSION_STOPPED,
+  MATTER_FABRIC_COMMITTED, MATTER_SERVER_READY,
+};
 enum matterNetwork_t { MATTER_NETWORK_NONE = 0, MATTER_NETWORK_WIFI, MATTER_NETWORK_THREAD, MATTER_NETWORK_ETHERNET };
 
 class ArduinoMatter {
@@ -214,6 +222,14 @@ public:
   }
   static matterNetwork_t getSelectedNetwork() { return st().network; }
   static void begin() { st().started = true; }
+  using matterEventCB = std::function<void(matterEvent_t, const chip::DeviceLayer::ChipDeviceEvent *)>;
+  static void onEvent(matterEventCB cb) { st().eventCb = cb; }
+  static void fire(matterEvent_t e) {          // test hook: the Matter task posts an event
+    chip::DeviceLayer::ChipDeviceEvent ev{(uint16_t)e};
+    if (st().eventCb) st().eventCb(e, &ev);
+  }
+  static bool isThreadConnected() { return st().network == MATTER_NETWORK_THREAD && st().netUp; }
+  static bool isWiFiConnected() { return st().network == MATTER_NETWORK_WIFI && st().netUp; }
   static bool isDeviceCommissioned() { return st().commissioned; }
   static bool isDeviceConnected() { return st().commissioned && st().online; }
   static void decommission() { st().commissioned = false; ++st().decommissions; }
@@ -224,7 +240,8 @@ public:
     std::string vendor, product, device, serial, hw;
     uint32_t passcode = 20202021; uint16_t discriminator = 0xF00;
     matterNetwork_t network = MATTER_NETWORK_NONE;
-    bool started = false, commissioned = false, online = false;
+    bool started = false, commissioned = false, online = false, netUp = false;
+    matterEventCB eventCb;
     int decommissions = 0;
     int failedEndpoints = 0;
     std::vector<MatterEndPoint *> endpoints;   // index i = endpoint id i+1

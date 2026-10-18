@@ -9,7 +9,7 @@
 
 // Keep in sync with custom_components/spooky_lights/manifest.json "version"
 // (the release workflow refuses to publish if they differ from the tag).
-#define FW_VERSION "1.1.2"
+#define FW_VERSION "1.1.3"
 
 // ------------------------------------------------------------ Radio stack
 // Chosen with the Arduino IDE "Zigbee Mode" menu — no code changes needed:
@@ -96,8 +96,12 @@
 // TransportMatter.cpp). The Home Assistant integration maps them by number.
 //
 // Network: Thread by default. On the ESP32-C6 (which also has Wi-Fi) set this
-// to 1 for Matter over Wi-Fi instead.
+// to 1 for Matter over Wi-Fi instead: no Thread border router needed, the
+// phone hands over your 2.4 GHz Wi-Fi. Releases ship both NanoC6 builds
+// (CI passes -DMATTER_USE_WIFI=1 for "nanoc6-matter-wifi").
+#ifndef MATTER_USE_WIFI
 #define MATTER_USE_WIFI      0
+#endif
 
 // Every device generates its own random setup passcode and discriminator on
 // first boot and keeps them in flash (they survive re-pairing and firmware

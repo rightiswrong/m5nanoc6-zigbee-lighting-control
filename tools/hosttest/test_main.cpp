@@ -440,7 +440,10 @@ static void testEndToEnd(const char *qrOut) {
   const char *kinds[] = {"", "color_light", "dimmable_plugin", "dimmable_plugin", "dimmable_plugin", "dimmable_plugin",
                          "light_sensor"};
   for (int id = 1; id <= MEP_COUNT; ++id) CHECK(strcmp(ep(id)->kind, kinds[id]) == 0, "ep %d is %s", id, ep(id)->kind);
-  CHECK(M.network == MATTER_NETWORK_THREAD, "network should be Thread, is %d", (int)M.network);
+  const matterNetwork_t wantNet = MATTER_USE_WIFI ? MATTER_NETWORK_WIFI : MATTER_NETWORK_THREAD;
+  CHECK(M.network == wantNet, "network should be %d, is %d", (int)wantNet, (int)M.network);
+  CHECK(M.eventCb != nullptr, "no Matter event handler registered");
+  CHECK(log.find(MATTER_USE_WIFI ? "Matter over Wi-Fi" : "Matter over Thread") != std::string::npos, "banner doesn't name the network");
   CHECK(M.started && M.vendor == "SpookyLab" && M.product == "Spooky Lights " BOARD_NAME, "identity %s / %s", M.vendor.c_str(),
         M.product.c_str());
   CHECK(mcodes::passcodeValid(M.passcode) && M.passcode != 20202021u && M.discriminator <= 0xFFF, "setup code %u / %u",
@@ -459,6 +462,37 @@ static void testEndToEnd(const char *qrOut) {
   size_t firstBanner = log.find("ready to pair");
   runLoopMs(MATTER_QR_REPEAT_MS + 100);
   CHECK(log.find("ready to pair", firstBanner + 1) != std::string::npos, "pairing info not repeated while uncommissioned");
+
+  printf("[e2e/matter] attempt 1: BLE ok, network never joined → no QR mid-pairing, fail-safe explained\n");
+  log.clear();
+  ArduinoMatter::fire(MATTER_CHIPOBLE_CONNECTION_ESTABLISHED);
+  ArduinoMatter::fire(MATTER_COMMISSIONING_SESSION_STARTED);
+  runLoopMs(20000);
+  ArduinoMatter::fire(MATTER_CHIPOBLE_CONNECTION_CLOSED);   // phone hands over and drops BLE
+  runLoopMs(MATTER_QR_REPEAT_MS + 10000);
+  CHECK(log.find("connected over Bluetooth") != std::string::npos && log.find("Bluetooth closed") != std::string::npos,
+        "BLE milestones not logged");
+  CHECK(log.find("ready to pair") == std::string::npos, "QR re-printed while a phone was pairing");
+  ArduinoMatter::fire(MATTER_FAIL_SAFE_TIMER_EXPIRED);
+  runLoopMs(4000);
+  CHECK(log.find("fail-safe expired") != std::string::npos && log.find("never joined") != std::string::npos,
+        "failed attempt not explained");
+  CHECK(log.find(MATTER_USE_WIFI ? "2.4 GHz" : "Sync Thread credentials") != std::string::npos, "network-specific advice missing");
+  CHECK(log.find("ready to pair", log.find("fail-safe expired")) != std::string::npos, "QR not shown again after the failed attempt");
+  CHECK(!M.commissioned && ESP.restarts == 0, "a failed attempt must not restart or commission");
+
+  printf("[e2e/matter] attempt 2: BLE → joins network → commissioned\n");
+  log.clear();
+  ArduinoMatter::fire(MATTER_CHIPOBLE_CONNECTION_ESTABLISHED);
+  ArduinoMatter::fire(MATTER_COMMISSIONING_SESSION_STARTED);
+  runLoopMs(3000);
+  M.netUp = true;
+  ArduinoMatter::fire(MATTER_CHIPOBLE_CONNECTION_CLOSED);
+  runLoopMs(3000);
+  CHECK(log.find(MATTER_USE_WIFI ? "joined the Wi-Fi network" : "joined the Thread network") != std::string::npos,
+        "network join not logged");
+  ArduinoMatter::fire(MATTER_FABRIC_COMMITTED);
+  ArduinoMatter::fire(MATTER_COMMISSIONING_COMPLETE);
 
   printf("[e2e/matter] commissioned; hot-plug 3 → 5; HA picks effects on the effect dimmer\n");
   M.commissioned = M.online = true;

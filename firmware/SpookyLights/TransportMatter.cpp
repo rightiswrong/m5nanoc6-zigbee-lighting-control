@@ -17,13 +17,16 @@
 //
 //  Pairing: every device makes its own random passcode + discriminator on
 //  first boot (kept in NVS "spooky_mt"). Its QR code is printed on the serial
-//  monitor at boot and every minute until commissioned.
+//  monitor at boot and every minute until commissioned, except while a phone
+//  is in the middle of pairing. Pairing milestones (Bluetooth, Thread/Wi-Fi,
+//  fail-safe, complete) are logged, and a failed attempt says what to check.
 // =============================================================================
 #include "config.h"
 #if SPOOKY_MATTER
 
 #include <Arduino.h>
 #include <Matter.h>
+#include <atomic>
 #include <Preferences.h>
 #include <esp_random.h>
 #include "Effects.h"
@@ -56,6 +59,124 @@ bool g_printedOnce = false;
 bool g_wasCommissioned = false;
 
 uint32_t hwRandom() { return esp_random(); }
+
+// ------------------------------------------------- commissioning progress
+// Matter events arrive in the Matter task. They are queued (single producer,
+// single consumer) and printed from loop(), so they never cut into the
+// pairing banner.
+constexpr uint8_t EVQ_SIZE = 16;
+uint16_t g_evq[EVQ_SIZE];
+std::atomic<uint8_t> g_evHead{0}, g_evTail{0};
+
+void queueEvent(matterEvent_t ev) {
+  uint8_t h = g_evHead.load(std::memory_order_relaxed), next = (uint8_t)((h + 1) % EVQ_SIZE);
+  if (next == g_evTail.load(std::memory_order_acquire)) return;   // full: drop, it's only a log
+  g_evq[h] = (uint16_t)ev;
+  g_evHead.store(next, std::memory_order_release);
+}
+
+bool takeEvent(matterEvent_t &ev) {
+  uint8_t t = g_evTail.load(std::memory_order_relaxed);
+  if (t == g_evHead.load(std::memory_order_acquire)) return false;
+  ev = (matterEvent_t)g_evq[t];
+  g_evTail.store((uint8_t)((t + 1) % EVQ_SIZE), std::memory_order_release);
+  return true;
+}
+
+void onMatterEvent(matterEvent_t ev, const chip::DeviceLayer::ChipDeviceEvent *) {
+  switch (ev) {
+    case MATTER_CHIPOBLE_CONNECTION_ESTABLISHED:
+    case MATTER_CHIPOBLE_CONNECTION_CLOSED:
+    case MATTER_COMMISSIONING_SESSION_STARTED:
+    case MATTER_COMMISSIONING_SESSION_STOPPED:
+    case MATTER_FAIL_SAFE_TIMER_EXPIRED:
+    case MATTER_COMMISSIONING_COMPLETE:
+    case MATTER_THREAD_CONNECTIVITY_CHANGE:
+    case MATTER_WIFI_CONNECTIVITY_CHANGE:
+    case MATTER_FABRIC_COMMITTED:
+      queueEvent(ev);
+      break;
+    default:
+      break;
+  }
+}
+
+// What happened during the current pairing attempt (loop() only).
+struct {
+  uint32_t busyUntil;       // don't reprint the QR before this (a phone is pairing)
+  bool ble, session, network;
+} g_attempt;
+bool g_netUp = false;       // Thread attached / Wi-Fi connected, as last logged
+constexpr uint32_t PAIRING_BUSY_MS = 150000;   // > the longest fail-safe a commissioner arms
+
+const char *netName() { return Matter.getSelectedNetwork() == MATTER_NETWORK_WIFI ? "Wi-Fi" : "Thread"; }
+bool netUp() { return Matter.getSelectedNetwork() == MATTER_NETWORK_WIFI ? Matter.isWiFiConnected() : Matter.isThreadConnected(); }
+
+void explainFailedAttempt() {
+  const bool wifi = Matter.getSelectedNetwork() == MATTER_NETWORK_WIFI;
+  Serial.println();
+  Serial.println("[matter] pairing timed out (fail-safe expired) — nothing was saved, try again.");
+  if (!g_attempt.ble && !g_attempt.session) {
+    Serial.println("[matter]   The phone never got as far as this light.");
+  } else if (!g_attempt.network) {
+    Serial.printf("[matter]   Bluetooth worked, but the light never joined %s: the phone didn't hand over\n", netName());
+    if (wifi) {
+      Serial.println("[matter]   working Wi-Fi details. Put the phone on your 2.4 GHz Wi-Fi and try again.");
+    } else {
+      Serial.println("[matter]   Thread credentials. On Android (\"Your device requires a Thread border router\"):");
+      Serial.println("[matter]   HA app > Settings > Companion app > Troubleshooting > Sync Thread credentials,");
+      Serial.println("[matter]   and make sure HA's Thread integration has a *preferred* network. See docs/MATTER.md.");
+      Serial.println("[matter]   No luck? Flash the nanoc6-matter-wifi build: it pairs over Wi-Fi, no Thread needed.");
+    }
+  } else {
+    Serial.printf("[matter]   The light joined %s, but Home Assistant couldn't reach it there. Check that\n", netName());
+    Serial.println("[matter]   IPv6 is enabled on HA and multicast/mDNS isn't blocked to the border router.");
+  }
+  Serial.println();
+}
+
+void handleEvents(uint32_t now) {
+  matterEvent_t ev;
+  while (takeEvent(ev)) {
+    switch (ev) {
+      case MATTER_CHIPOBLE_CONNECTION_ESTABLISHED:
+        g_attempt.ble = true;
+        g_attempt.busyUntil = now + PAIRING_BUSY_MS;
+        Serial.println("[matter] a phone connected over Bluetooth — pairing…");
+        break;
+      case MATTER_CHIPOBLE_CONNECTION_CLOSED:
+        Serial.printf("[matter] Bluetooth closed (normal: the rest happens over %s)\n", netName());
+        break;
+      case MATTER_COMMISSIONING_SESSION_STARTED:
+        g_attempt.session = true;
+        g_attempt.busyUntil = now + PAIRING_BUSY_MS;
+        Serial.println("[matter] pairing session started (setup code check)");
+        break;
+      case MATTER_COMMISSIONING_SESSION_STOPPED:
+        Serial.println("[matter] pairing session ended");
+        break;
+      case MATTER_FAIL_SAFE_TIMER_EXPIRED:
+        if (!Matter.isDeviceCommissioned()) explainFailedAttempt();
+        g_attempt = {};
+        g_lastQr = now - MATTER_QR_REPEAT_MS + 3000;   // QR again in 3 s
+        break;
+      case MATTER_FABRIC_COMMITTED:
+        Serial.println("[matter] controller credentials saved");
+        break;
+      case MATTER_COMMISSIONING_COMPLETE:
+        g_attempt = {};
+        break;
+      default:   // connectivity changes: polled below
+        break;
+    }
+  }
+  const bool up = netUp();
+  if (up != g_netUp) {
+    g_netUp = up;
+    if (up) g_attempt.network = true;
+    Serial.printf(up ? "[matter] joined the %s network\n" : "[matter] left the %s network\n", netName());
+  }
+}
 
 espHsvColor_t hsvOf(const ShowState &s) {
   espRgbColor_t rgb = {s.color.r, s.color.g, s.color.b};
@@ -99,7 +220,8 @@ void printPairingInfo() {
   mcodes::formatManualCode(manual.c_str(), manualFmt, sizeof(manualFmt));
 
   Serial.println();
-  Serial.println("  ==== " BOARD_NAME " Spooky Lights — ready to pair (Matter) ====");
+  Serial.println();   // start clean even if the last log line had no newline
+  Serial.printf("  ==== " BOARD_NAME " Spooky Lights — ready to pair (Matter over %s) ====\n", netName());
   Serial.println("  Home Assistant app: Settings > Devices > Add device > Add Matter device,");
   Serial.println("  then scan this code. Keep the phone near the light (pairing uses Bluetooth).");
   Serial.println();
@@ -201,6 +323,7 @@ public:
     if (ok != MATTER_APP_ENDPOINTS)
       Serial.printf("[matter] ERROR: only %d of %u endpoints could be created\n", ok, (unsigned)MATTER_APP_ENDPOINTS);
 
+    Matter.onEvent(onMatterEvent);
     Serial.printf("[matter] free heap before start: %u bytes\n", (unsigned)ESP.getFreeHeap());
     Matter.begin();
     g_wasCommissioned = Matter.isDeviceCommissioned();
@@ -210,6 +333,7 @@ public:
   }
 
   void loop(uint32_t now, uint8_t detected) override {
+    handleEvents(now);
     const bool commissioned = Matter.isDeviceCommissioned();
     if (!commissioned) {
       if (g_wasCommissioned) {
@@ -220,7 +344,8 @@ public:
         ESP.restart();
         return;
       }
-      if (!g_printedOnce || now - g_lastQr >= MATTER_QR_REPEAT_MS) {
+      const bool pairing = (int32_t)(g_attempt.busyUntil - now) > 0;
+      if (!g_printedOnce || (!pairing && now - g_lastQr >= MATTER_QR_REPEAT_MS)) {
         printPairingInfo();
         g_lastQr = now;
         g_printedOnce = true;

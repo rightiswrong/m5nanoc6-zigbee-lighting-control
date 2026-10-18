@@ -59,6 +59,8 @@ jobs:
         include:
           - { board: nanoc6, stack: zigbee, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
           - { board: nanoc6, stack: matter, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app" }
+          - { board: nanoc6, stack: matter-wifi, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app",
+              cliflags: '["--build-property", "compiler.cpp.extra_flags=-DMATTER_USE_WIFI=1"]' }
           - { board: nanoh2, stack: zigbee, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
     steps:
       - uses: actions/checkout@v5
@@ -68,6 +70,7 @@ jobs:
             - name: esp32:esp32
               source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
           fqbn: ${{ matrix.fqbn }}
+          cli-compile-flags: ${{ matrix.cliflags || '[]' }}
           sketch-paths: |
             - firmware/SpookyLights
           enable-warnings-report: true
