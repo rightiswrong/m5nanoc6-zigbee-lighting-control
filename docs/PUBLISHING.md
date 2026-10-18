@@ -38,7 +38,7 @@ exactly what HACS expects.
 1. Bump `"version"` in `manifest.json`.
 2. If you changed effects/endpoints in the firmware, the sync tests in
    `tests/test_logic.py` will fail until `logic.py` matches — that is on purpose.
-3. Bump `FW_VERSION` in `firmware/NanoC6_SpookyLights/config.h` to the same
+3. Bump `FW_VERSION` in `firmware/SpookyLights/config.h` to the same
    number (the release refuses to publish if they differ).
 4. Push to `main`. The Release workflow builds the firmware, creates the tag
    `vX.Y.Z` and publishes the release with binaries.

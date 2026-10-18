@@ -1,5 +1,12 @@
 # Wiring
 
+Everything here applies to both the **M5NanoC6** and the **M5NanoH2**: same
+Grove port, same 5 V, same wires. Pin numbers below are for the Grove port's
+yellow (clock) and white (data) wires. M5Unified puts them on G1 and G2 on both
+boards, but the NanoH2 docs page lists them the other way round. With the
+loopback fitted, the firmware tries both orders at boot and remembers the one
+that answers.
+
 ## 1. The basic string (no hot-plug detection)
 
 Grove cables are straight-through; colours are the standard Grove scheme.
@@ -80,5 +87,7 @@ together.
 
 ## 4. Onboard LED
 
-Nothing to wire: the NanoC6's WS2812 is on G20 behind a load switch on G19,
-which the firmware enables at boot.
+Nothing to wire. The WS2812 sits behind a load switch that the firmware
+enables at boot:
+* NanoC6: data on G20, switch on G19.
+* NanoH2: data on G11, switch on G10.

@@ -23,14 +23,14 @@ jobs:
     name: Hassfest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: home-assistant/actions/hassfest@master
 
   logic-tests:
     name: Integration logic + firmware sync tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -40,7 +40,7 @@ jobs:
     name: Firmware logic (host simulation, 5 variants)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -62,7 +62,7 @@ jobs:
           - { board: nanoh2, stack: zigbee, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
           - { board: nanoh2, stack: matter, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=huge_app" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: arduino/compile-sketches@v1
         with:
           platforms: |

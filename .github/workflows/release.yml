@@ -36,7 +36,7 @@ jobs:
       tag: ${{ steps.decide.outputs.tag }}
       publish: ${{ steps.decide.outputs.publish }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Decide tag and whether to publish
         id: decide
         run: |
@@ -61,7 +61,7 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -86,7 +86,7 @@ jobs:
           - { board: nanoh2, chip: esp32h2, stack: zigbee, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
           - { board: nanoh2, chip: esp32h2, stack: matter, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=huge_app" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: arduino/setup-arduino-cli@v2
       - name: Install the Espressif ESP32 core
         run: |
@@ -126,7 +126,7 @@ jobs:
     needs: [plan, firmware]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           path: fw
