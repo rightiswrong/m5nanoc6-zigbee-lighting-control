@@ -388,7 +388,7 @@ real ESP32-C6/H2 toolchain, and runs HACS and hassfest validation.
 
 ## Status: what has and hasn't been verified
 
-* ✅ Zigbee on the NanoC6 has been run on real hardware (onboard LED).
+* ✅ Zigbee on the NanoC6 is tested on real hardware and works with the onboard LED plus a string of 11 Grove Chainable LEDs so far.
 * ✅ Everything compiles for both chips and passes the simulations above.
 * ❌ **Matter on the NanoH2 doesn't fit** (see *Why no Matter on the NanoH2?*).
   1.1.0 and 1.1.1 crashed at boot on real hardware; from 1.1.2 the NanoH2 is
