@@ -20,6 +20,17 @@ length, a "LED added/removed" event, and a jump-scare button.
 [![Validate](https://github.com/rightiswrong/m5nanoc6-zigbee-lighting-control/actions/workflows/validate.yml/badge.svg)](https://github.com/rightiswrong/m5nanoc6-zigbee-lighting-control/actions/workflows/validate.yml)
 [![Release](https://img.shields.io/github/v/release/rightiswrong/m5nanoc6-zigbee-lighting-control)](https://github.com/rightiswrong/m5nanoc6-zigbee-lighting-control/releases/latest)
 
+### 👻 No parts yet? Try it in your browser
+
+[![Spooky Lights demo: the Demo Reel lighting pumpkins, skulls and ghosts on a night porch](docs/img/demo-preview.gif)](https://rightiswrong.github.io/m5nanoc6-zigbee-lighting-control/demo/)
+
+**[Open the interactive demo →](https://rightiswrong.github.io/m5nanoc6-zigbee-lighting-control/demo/)**
+A simulated Home Assistant device page drives a porch full of pumpkins, skulls and
+ghosts, each lit by its own Grove LED. Switch effects, change colour and speed, plug
+modules in and pull them out, fire the jump scare, and copy the YAML for each action.
+The effects run a JavaScript port of the real firmware, seeds and timings included.
+Add `#kiosk` to the URL for a full-screen Demo Reel to screen-record.
+
 ---
 
 ## What's in the box
@@ -32,6 +43,7 @@ length, a "LED added/removed" event, and a jump-scare button.
 | `zigbee2mqtt/nanoc6_spooky.mjs` | Optional external converter if you use Zigbee2MQTT instead of ZHA |
 | `docs/MATTER.md` | Matter over Thread: what you need, QR pairing, labels, troubleshooting |
 | `docs/WIRING.md` | Wiring, including the loopback needed for hot-plug detection |
+| `docs/demo/` | The in-browser demo (GitHub Pages): mock Home Assistant page + simulated porch |
 | `docs/PUBLISHING.md` | How to get the integration into the HACS default list |
 | `tools/hosttest/` | Firmware compiled on a PC against a bit-level P9813 chain simulator and Zigbee / Matter stand-ins |
 | `tests/` | Integration logic tests + firmware ⇄ integration sync checks |

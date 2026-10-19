@@ -1,0 +1,1391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Try Spooky Lights without the hardware: a simulated Zigbee Halloween light, its Home Assistant controls, and a porch full of pumpkins, skulls and ghosts.">
+<meta property="og:title" content="Spooky Lights Demo">
+<meta property="og:description" content="Ten Halloween effects and a Demo Reel, running in your browser on a port of the real firmware.">
+<title>Spooky Lights Demo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=IM+Fell+English+SC&family=JetBrains+Mono:wght@400;600&family=Roboto:wght@400;500&display=swap">
+<style>
+/* Layout: a night porch "stage" (scene + bench rig + YAML) beside a mocked Home Assistant device page; on phones the scene sticks to the top while you operate the controls below it. */
+:root{
+  --night:#0d0b15; --panel:#16121f; --line:#2b2439; --ink:#ede7f6; --ink-dim:#a59cb9; --ember:#ff8f3a; --ember-ink:#1b0e05;
+  --ha-bg:#111216; --ha-card:#1c1c20; --ha-line:#2f2f35; --ha-text:#e3e3e6; --ha-text2:#9d9da7; --ha-primary:#03a9f4; --ha-field:#2a2a30;
+  --code-bg:#0f0c17; --ok:#7ddc8a; --bad:#ff6b6b;
+  --f-display:"IM Fell English SC","Iowan Old Style",Georgia,serif;
+  --f-body:"Atkinson Hyperlegible","Segoe UI",system-ui,sans-serif;
+  --f-ha:Roboto,"Segoe UI",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{background:var(--night);color:var(--ink)}
+body{margin:0;font:15px/1.5 var(--f-body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--night)}
+[hidden]{display:none!important}
+:focus-visible{outline:2px solid var(--ember);outline-offset:2px}
+a{color:var(--ember)}
+button{font:inherit;color:inherit}
+
+.wrap{max-width:1380px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
+.top h1{font-family:var(--f-display);font-weight:400;font-size:clamp(30px,4.2vw,46px);line-height:1.02;margin:0;letter-spacing:.01em;text-wrap:balance}
+.top h1 span{color:var(--ember)}
+.lede{margin:6px 0 0;color:var(--ink-dim);max-width:64ch}
+.top-actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{font:700 14px/1 var(--f-body);padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer;text-decoration:none;display:inline-flex;gap:8px;align-items:center;white-space:nowrap}
+.btn:hover{border-color:#5a4c74}
+.btn.primary{background:var(--ember);color:var(--ember-ink);border-color:var(--ember)}
+.btn.small{padding:7px 10px;font-size:13px}
+
+/* ---------- tour ---------- */
+.tour{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 20px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px}
+.tour .step{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);display:flex;gap:10px;align-items:center}
+.tour .dots{display:flex;gap:4px}
+.tour .dots i{width:7px;height:7px;border-radius:50%;background:var(--line)}
+.tour .dots i.on{background:var(--ember)}
+.tour .dots i.done{background:#7a5a3c}
+.tour h2{font-family:var(--f-display);font-weight:400;font-size:24px;line-height:1.1;margin:8px 0 4px}
+.tour p{margin:0;color:var(--ink-dim);max-width:78ch}
+.tour p b{color:var(--ink)}
+.tour .nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.tour .check{font:600 13px var(--f-body);color:var(--ok);display:flex;gap:6px;align-items:center}
+.tour-closed{display:flex;justify-content:flex-start}
+@media (max-width:640px){.tour{grid-template-columns:minmax(0,1fr)}.tour .nav{justify-content:flex-start}}
+.tour-target{outline:2px solid var(--ember)!important;outline-offset:-2px;box-shadow:0 0 0 5px rgba(255,143,58,.22);border-radius:10px;animation:beckon 1.6s ease-in-out infinite}
+@keyframes beckon{50%{box-shadow:0 0 0 9px rgba(255,143,58,.08)}}
+
+/* ---------- main grid ---------- */
+.main{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:20px;align-items:start}
+.stage-col{position:sticky;top:calc(12px + env(safe-area-inset-top,0px));display:flex;flex-direction:column;gap:12px;min-width:0}
+@media (max-width:940px){
+  .main{grid-template-columns:minmax(0,1fr)}
+  .stage-col{display:contents}
+}
+
+/* ---------- scene ---------- */
+.scene{margin:0;position:relative;border-radius:12px;overflow:hidden;background:#05040a;border:1px solid var(--line)}
+.scene canvas{display:block;width:100%;aspect-ratio:16/9;max-width:100%}
+.cap{position:absolute;left:12px;bottom:10px;display:flex;flex-direction:column;gap:2px;pointer-events:none;text-shadow:0 1px 6px #000}
+.cap-fx{font-family:var(--f-display);font-size:clamp(17px,2.4vw,26px);line-height:1.05}
+.cap-log{font:500 11px/1.2 var(--f-mono);color:#cfc6e3;opacity:.85}
+.scene-tools{position:absolute;top:8px;right:8px;display:flex;gap:6px;align-items:center}
+.pill{display:inline-flex;gap:6px;align-items:center;font:600 12px/1 var(--f-body);background:rgba(10,8,18,.72);border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:6px 10px;color:#e8e2f4;cursor:pointer}
+.pill input{margin:0;accent-color:var(--ember)}
+@media (max-width:520px){.pill .lbl-long{display:none}}
+@media (max-width:940px){.ha .row,.bench,.chain{scroll-margin-top:calc((100vw - 32px) * .5625 + 24px)}.scene{position:sticky;top:env(safe-area-inset-top,0px);z-index:6;box-shadow:0 10px 24px rgba(0,0,0,.6)}}
+
+/* ---------- bench rig ---------- */
+.bench{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.bench-head{display:flex;flex-wrap:wrap;gap:4px 14px;justify-content:space-between;align-items:baseline}
+.bench h3,.howto h3{font-family:var(--f-display);font-weight:400;font-size:20px;margin:0}
+.bench-stat{font:500 12px var(--f-mono);color:var(--ink-dim);font-variant-numeric:tabular-nums}
+.bench-stat .probing{color:var(--ember)}
+.rig{display:flex;gap:8px;align-items:flex-start}
+.board{flex:none;width:86px;height:58px;border-radius:7px;background:#232027;border:1px solid #3a3542;position:relative;display:flex;flex-direction:column;justify-content:flex-end;padding:6px 7px}
+.board b{font:600 11px var(--f-mono);color:#d9d3e6}
+.board small{font:500 9px var(--f-mono);color:var(--ink-dim)}
+.board .led{position:absolute;top:8px;right:9px;width:12px;height:12px;border-radius:50%;background:#000;border:1px solid #555}
+.board .port{position:absolute;top:8px;left:8px;width:22px;height:10px;border-radius:2px;background:#e9e3d6}
+.chain{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}
+.mod{width:40px;height:40px;border-radius:6px;background:#1d2a3a;border:1px solid #2f4258;position:relative;cursor:pointer;padding:0;display:grid;place-items:center}
+.mod::before{content:"";position:absolute;left:-9px;top:50%;width:9px;height:3px;background:#c9c1b0;border-radius:2px}
+.mod .dot{width:16px;height:16px;border-radius:50%;background:#0a0a0c;border:1px solid #4a5a70}
+.mod .num{position:absolute;bottom:1px;right:3px;font:600 9px var(--f-mono);color:#93a6bf}
+.mod:hover{border-color:var(--bad)}
+.mod:hover .num{color:var(--bad)}
+.mod.pending .dot{border-style:dashed}
+.socket{width:40px;height:40px;border-radius:6px;border:1px dashed #4b4260;color:var(--ink-dim);display:grid;place-items:center;font-size:18px;background:none;cursor:pointer;padding:0}
+.socket:hover{border-color:var(--ember);color:var(--ember)}
+.bench-actions{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.bench-actions label{display:flex;gap:8px;align-items:center;color:var(--ink-dim);font-size:14px;cursor:pointer}
+.bench-actions input{accent-color:var(--ember)}
+.hint{font-size:13px;color:var(--ink-dim);margin:0}
+
+/* ---------- yaml ---------- */
+.howto{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.howto-head{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
+.howto pre{margin:0;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font:400 12.5px/1.55 var(--f-mono);color:#d8d0ea;min-height:5em}
+.howto pre .k{color:#ffb070}.howto pre .c{color:#7d7394}.howto pre .s{color:#9fe0a7}
+
+/* ---------- Home Assistant mock ---------- */
+.ha{position:relative;background:var(--ha-bg);border:1px solid var(--line);border-radius:14px;overflow:hidden;font-family:var(--f-ha);color:var(--ha-text);min-width:0}
+.ha-top{display:flex;align-items:center;gap:10px;padding:12px 16px;background:#1a1b20;border-bottom:1px solid var(--ha-line);font-size:14px;min-width:0}
+.ha-top svg{flex:none}
+.ha-top .crumb{color:var(--ha-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ha-top .mock{margin-left:auto;font:500 10px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:#8a8a93;border:1px solid #3a3a42;border-radius:4px;padding:4px 6px;flex:none}
+.ha-body{padding:16px;display:flex;flex-direction:column;gap:14px}
+.ha-dev h2{font:400 22px/1.2 var(--f-ha);margin:0}
+.ha-dev p{margin:4px 0 8px;color:var(--ha-text2);font-size:13px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--ha-line);border-radius:16px;padding:4px 10px;font-size:12px;color:var(--ha-text2)}
+.ha-card{background:var(--ha-card);border-radius:12px;padding:4px 0 8px;border:1px solid #26262b}
+.ha-card h3{font:500 15px var(--f-ha);margin:12px 16px 4px;color:var(--ha-text)}
+.row{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:6px 12px;padding:6px 16px;min-height:54px}
+.row .ico{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;color:var(--ha-text2);background:none;border:0;padding:0}
+.row .ico svg{width:24px;height:24px}
+.row .name{min-width:0;text-align:left}
+.row .name b{font-weight:400;font-size:14px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .name small{color:var(--ha-text2);font-size:12px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.src{display:inline-block;font:500 10px/1 var(--f-mono);letter-spacing:.04em;padding:2px 5px;border-radius:3px;margin-right:5px;vertical-align:1px}
+.src.sl{background:rgba(255,143,58,.15);color:#ffb37a}
+.src.zha{background:rgba(3,169,244,.14);color:#6ccdf8}
+button.name{background:none;border:0;padding:0;cursor:pointer}
+button.name:hover b{color:#fff;text-decoration:underline;text-underline-offset:3px}
+.ctl{display:flex;align-items:center;gap:8px;justify-self:end;min-width:0}
+.ctl output,.ctl .val{font-size:13px;color:var(--ha-text2);min-width:3.6em;text-align:right;font-variant-numeric:tabular-nums}
+.ctl input[type=range]{width:min(170px,30vw);accent-color:var(--ha-primary)}
+.ha select{background:var(--ha-field);color:var(--ha-text);border:1px solid #3a3a42;border-radius:6px;padding:8px 28px 8px 10px;font:14px var(--f-ha);max-width:min(210px,46vw)}
+.state{font-size:14px;color:var(--ha-text);font-variant-numeric:tabular-nums;text-align:right}
+.state small{display:block;color:var(--ha-text2);font-size:11px}
+.sw{width:36px;height:20px;border-radius:10px;background:#5b5b63;border:0;position:relative;cursor:pointer;padding:0;transition:background .15s}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#e6e6e6;transition:transform .15s}
+.sw[aria-checked="true"]{background:var(--ha-primary)}
+.sw[aria-checked="true"]::after{transform:translateX(16px)}
+@media (max-width:560px){
+  .row:not(#row-scare) .ctl{grid-column:2/-1;justify-self:stretch}
+  .row:not(#row-scare) .ctl input[type=range]{flex:1;width:auto}
+  .row:not(#row-scare) .ctl select{flex:1;max-width:none}
+}
+.press{background:none;border:0;color:var(--ha-primary);font:500 14px var(--f-ha);letter-spacing:.03em;text-transform:uppercase;cursor:pointer;padding:8px}
+.press:disabled{color:#ff8f3a;cursor:default}
+.log{list-style:none;margin:0;padding:0 16px 6px;display:flex;flex-direction:column}
+.log li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:8px 0;border-top:1px solid var(--ha-line);font-size:13px}
+.log li:first-child{border-top:0}
+.log time{color:var(--ha-text2);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.log em{font-style:normal;color:var(--ha-text2)}
+
+/* more-info dialog */
+.mi{position:absolute;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;z-index:10}
+.mi-box{width:min(380px,100%);background:#1f1f24;border-radius:22px;padding:14px 18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.6);display:flex;flex-direction:column;gap:14px}
+.mi-head{display:flex;align-items:center;gap:8px}
+.mi-head h4{margin:0;font:400 18px var(--f-ha);flex:1}
+.iconbtn{background:none;border:0;width:36px;height:36px;border-radius:50%;cursor:pointer;color:var(--ha-text2);display:grid;place-items:center}
+.iconbtn:hover{background:#2c2c33}
+.mi-state{font:400 30px/1 var(--f-ha);text-align:center}
+.mi-state small{display:block;font-size:13px;color:var(--ha-text2);margin-top:6px}
+.big{width:100%;height:56px;accent-color:var(--ha-primary)}
+.mi .lab{font-size:12px;color:var(--ha-text2);display:block;margin-bottom:6px}
+.swatches{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.swatch{width:34px;height:34px;border-radius:50%;border:2px solid #2c2c33;cursor:pointer;padding:0}
+.swatch[aria-pressed="true"]{border-color:#fff}
+.swatches input[type=color]{width:34px;height:34px;border:0;padding:0;background:none;border-radius:50%;cursor:pointer}
+.mi-row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.mi .powerbtn{background:var(--ha-field);border:0;border-radius:10px;padding:10px 16px;cursor:pointer;font:500 14px var(--f-ha)}
+
+footer{color:var(--ink-dim);font-size:13px;display:flex;flex-direction:column;gap:6px;max-width:90ch}
+footer p{margin:0}
+
+/* ---------- kiosk / full-screen show ---------- */
+html.kiosk,html.kiosk body{height:100%;background:#000}
+html.kiosk body{padding:0}
+html.kiosk .top,html.kiosk .tour-wrap,html.kiosk .bench,html.kiosk .howto,html.kiosk .ha,html.kiosk footer{display:none!important}
+html.kiosk .wrap{max-width:none;height:100%;justify-content:center}
+html.kiosk .main{display:flex;height:100%;align-items:center;justify-content:center}
+html.kiosk .stage-col{position:static;display:flex;width:min(100vw,calc(100vh * 16 / 9))}
+html.kiosk .scene{border:0;border-radius:0;box-shadow:none}
+html.kiosk .cap{left:3%;bottom:5%}
+html.kiosk .cap-fx{font-size:clamp(22px,4.2vw,52px)}
+html.kiosk .cap-log{font-size:clamp(11px,1.3vw,16px)}
+html.kiosk #chk-nums-wrap{display:none}
+
+@media (prefers-reduced-motion: reduce){.tour-target{animation:none}}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Spooky<span>Lab</span> Lights, before the parts arrive</h1>
+      <p class="lede">A working simulation of the Spooky Lights firmware and its Home Assistant controls. Use the device page on the right; the porch shows what your string of Grove LEDs would do inside pumpkins, skulls and ghosts.</p>
+    </div>
+    <div class="top-actions">
+      <a class="btn" href="https://github.com/rightiswrong/m5nanoc6-zigbee-lighting-control#quick-start" target="_blank" rel="noopener">Build one</a>
+      <button class="btn primary" id="btn-show2" type="button">Full-screen show</button>
+    </div>
+  </header>
+
+  <div class="tour-wrap">
+    <section class="tour" id="tour" aria-live="polite">
+      <div>
+        <div class="step"><span id="tour-count">Step 1 of 11</span><span class="dots" id="tour-dots"></span></div>
+        <h2 id="tour-title">Meet the porch</h2>
+        <p id="tour-body"></p>
+      </div>
+      <div class="nav">
+        <span class="check" id="tour-check" hidden>✓ Done</span>
+        <button class="btn small" id="tour-back" type="button">Back</button>
+        <button class="btn small primary" id="tour-next" type="button">Next</button>
+        <button class="btn small" id="tour-hide" type="button">Hide tour</button>
+      </div>
+    </section>
+    <div class="tour-closed" id="tour-closed" hidden><button class="btn small" id="tour-show" type="button">Show the guided tour</button></div>
+  </div>
+
+  <div class="main">
+    <div class="stage-col">
+      <figure class="scene" id="stage">
+        <canvas id="cv" width="960" height="540" role="img" aria-label="A Halloween porch at night: carved pumpkins, skulls and ghosts lit from inside by the simulated LEDs"></canvas>
+        <figcaption class="cap"><span class="cap-fx" id="cap-fx">Candle Flicker</span><span class="cap-log" id="cap-log"></span></figcaption>
+        <div class="scene-tools">
+          <label class="pill" id="chk-nums-wrap"><input type="checkbox" id="chk-nums"> <span>Pixel <span class="lbl-long">numbers</span></span></label>
+          <button class="pill" id="btn-show" type="button">Full screen</button>
+        </div>
+      </figure>
+
+      <section class="bench" id="bench">
+        <div class="bench-head">
+          <h3>On the bench</h3>
+          <span class="bench-stat" id="bench-stat"></span>
+        </div>
+        <div class="rig">
+          <div class="board" title="M5NanoC6: its onboard LED lives in the jar"><span class="port"></span><span class="led" id="onboard-led"></span><b>NanoC6</b><small>Grove port</small></div>
+          <div class="chain" id="chain"></div>
+        </div>
+        <div class="bench-actions">
+          <button class="btn small" id="btn-plug" type="button">Plug in a module</button>
+          <label><input type="checkbox" id="chk-loop" checked> Return wire fitted, so modules are counted automatically</label>
+        </div>
+        <p class="hint">Click a module to unplug it. Modules 1–8 sit inside the props; 9–24 hang on the string lights.</p>
+      </section>
+
+      <section class="howto" id="howto">
+        <div class="howto-head">
+          <h3 id="yaml-title">Do it from an automation</h3>
+          <button class="btn small" id="btn-copy" type="button">Copy</button>
+        </div>
+        <pre id="yaml" tabindex="0"></pre>
+      </section>
+    </div>
+
+    <section class="ha" id="ha" aria-label="Home Assistant device page (simulated)">
+      <div class="ha-top">
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="#03a9f4" d="M12 3 2.5 11.2l1.3 1.5L5 11.7V20h5.5v-5.5h3V20H19v-8.3l1.2 1 1.3-1.5Z"/></svg>
+        <span class="crumb">Settings › Devices › NanoC6-Spooky</span>
+        <span class="mock">Simulated</span>
+      </div>
+      <div class="ha-body">
+        <div class="ha-dev">
+          <h2>NanoC6-Spooky</h2>
+          <p>SpookyLab · Zigbee router · Firmware 1.1.3</p>
+          <div class="chips"><span class="chip">Spooky Lights</span><span class="chip">Zigbee Home Automation</span></div>
+        </div>
+
+        <div class="ha-card">
+          <h3>Controls</h3>
+          <div class="row" id="row-light">
+            <button class="ico" id="light-ico" type="button" aria-label="Open Haunted light"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2Zm-3 18v1a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1Z"/></svg></button>
+            <button class="name" id="light-name" type="button"><b>Haunted light</b><small id="light-sub"><span class="src sl">SPOOKY</span>On · 78%</small></button>
+            <button class="sw" id="sw-light" role="switch" aria-checked="true" aria-label="Haunted light" type="button"></button>
+          </div>
+          <div class="row" id="row-effect">
+            <span class="ico"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M7.5 5.6 5 7l1.4-2.5L5 2l2.5 1.4L10 2 8.6 4.5 10 7ZM19.5 15.4 22 14l-1.4 2.5L22 19l-2.5-1.4L17 19l1.4-2.5L17 14Zm2.5-13.4-1.4 2.5L22 7l-2.5-1.4L17 7l1.4-2.5L17 2l2.5 1.4ZM13.3 7.4l2.3 2.3L4.6 20.7l-2.3-2.3Z"/></svg></span>
+            <div class="name"><b>Effect</b><small><span class="src sl">SPOOKY</span>select</small></div>
+            <div class="ctl"><select id="sel-effect" aria-label="Effect"></select></div>
+          </div>
+          <div class="row" id="row-output">
+            <span class="ico"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 5h8v2H5v10h6v2H3Zm10 0h8v14h-8v-2h6V7h-6Zm-4 6h6v2H9Z"/></svg></span>
+            <div class="name"><b>Output</b><small><span class="src sl">SPOOKY</span>select</small></div>
+            <div class="ctl"><select id="sel-output" aria-label="Output">
+              <option value="0">Auto (Grove if present, else onboard)</option>
+              <option value="1">Onboard LED only</option>
+              <option value="2">Grove chain only</option>
+              <option value="3">Onboard + Grove chain</option>
+            </select></div>
+          </div>
+          <div class="row" id="row-speed">
+            <span class="ico"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 4a10 10 0 0 0-8.7 15l1.7-1A8 8 0 1 1 19 18l1.7 1A10 10 0 0 0 12 4Zm4.6 4.2-5.8 5a1.6 1.6 0 1 0 2.3 2.2Z"/></svg></span>
+            <div class="name"><b>Effect speed</b><small><span class="src sl">SPOOKY</span>1–100, 50 is normal</small></div>
+            <div class="ctl"><input type="range" id="rng-speed" min="1" max="100" value="50" aria-label="Effect speed"><output id="out-speed">50</output></div>
+          </div>
+          <div class="row" id="row-spot">
+            <span class="ico"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M9 2h6l-1 8h-4Zm-5 9h16l-3 3H7Zm3 5h10l-5 6Z"/></svg></span>
+            <div class="name"><b>Spotlight pixel</b><small id="spot-sub"><span class="src sl">SPOOKY</span>max 6</small></div>
+            <div class="ctl"><input type="range" id="rng-spot" min="0" max="6" value="0" aria-label="Spotlight pixel"><output id="out-spot">Off</output></div>
+          </div>
+          <div class="row" id="row-scare">
+            <span class="ico"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M13 2 4 14h6l-2 8 9-12h-6Z"/></svg></span>
+            <div class="name"><b>Jump scare</b><small><span class="src sl">SPOOKY</span>8 s of full-power lightning</small></div>
+            <div class="ctl"><button class="press" id="btn-scare" type="button">Press</button></div>
+          </div>
+        </div>
+
+        <div class="ha-card">
+          <h3>Sensors</h3>
+          <div class="row">
+            <span class="ico"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 3h4v4H3Zm7 0h4v4h-4Zm7 0h4v4h-4ZM3 10h4v4H3Zm7 0h4v4h-4Zm7 0h4v4h-4ZM3 17h4v4H3Zm7 0h4v4h-4Z"/></svg></span>
+            <div class="name"><b>Active pixels</b><small id="pix-sub"><span class="src sl">SPOOKY</span>detected 6 · manual 0 · auto</small></div>
+            <div class="state" id="st-pixels">6</div>
+          </div>
+          <div class="row">
+            <span class="ico"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 4h6v6H4Zm10 0h6v6h-6ZM4 14h6v6H4Zm10 0h6v6h-6Zm-4-7h4v2h-4Zm0 10h4v2h-4Z"/></svg></span>
+            <div class="name"><b>Grove LEDs detected</b><small><span class="src zha">ZHA</span>endpoint 11 · analog input</small></div>
+            <div class="state" id="st-detected">6</div>
+          </div>
+        </div>
+
+        <div class="ha-card">
+          <h3>Events</h3>
+          <div class="row" id="row-event">
+            <span class="ico"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 2h2v2h6V2h2v2h3v18H4V4h3Zm-1 8v10h12V10Zm5 2h2v4h-2Zm0 5h2v2h-2Z"/></svg></span>
+            <div class="name"><b>Chain change</b><small id="ev-sub"><span class="src sl">SPOOKY</span>previous 5 · current 6</small></div>
+            <div class="state" id="st-event">led_added<small id="ev-time">4 min ago</small></div>
+          </div>
+        </div>
+
+        <div class="ha-card">
+          <h3>Configuration</h3>
+          <div class="row" id="row-manual">
+            <span class="ico"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 7h10v2H4Zm0 8h6v2H4Zm12-10h2v6h-2Zm0 8h2v6h-2ZM12 13h10v2H12Zm8-6h2v2h-2Z"/></svg></span>
+            <div class="name"><b>Manual LED count</b><small><span class="src zha">ZHA</span>0 = use the detected count</small></div>
+            <div class="ctl"><input type="range" id="rng-manual" min="0" max="24" value="0" aria-label="Manual LED count"><output id="out-manual">Auto</output></div>
+          </div>
+        </div>
+
+        <div class="ha-card">
+          <h3>Activity</h3>
+          <ul class="log" id="log"></ul>
+        </div>
+      </div>
+
+      <div class="mi" id="mi" hidden role="dialog" aria-modal="true" aria-labelledby="mi-title">
+        <div class="mi-box">
+          <div class="mi-head">
+            <h4 id="mi-title">Haunted light</h4>
+            <button class="iconbtn" id="mi-close" type="button" aria-label="Close"><svg width="22" height="22" viewBox="0 0 24 24"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4Z"/></svg></button>
+          </div>
+          <div class="mi-state" id="mi-state">78%<small>Candle Flicker</small></div>
+          <div><label class="lab" for="mi-bright">Brightness</label><input class="big" type="range" id="mi-bright" min="1" max="255" value="200"></div>
+          <div>
+            <span class="lab">Colour</span>
+            <div class="swatches" id="swatches"></div>
+          </div>
+          <div><label class="lab" for="mi-effect">Effect</label><select id="mi-effect" style="max-width:100%;width:100%"></select></div>
+          <div class="mi-row"><button class="powerbtn" id="mi-power" type="button">Turn off</button><span style="font-size:12px;color:var(--ha-text2)">Fades over 0.45 s</span></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <p>The light show runs a line-by-line JavaScript port of the firmware's <code>Effects.cpp</code>, <code>Demo.cpp</code> and <code>Renderer.cpp</code> (version 1.1.3): same random seeds, speed law, 1000 mA power limiter, chain-probe timing and hot-plug shimmer. The Home Assistant page is a mock built for this demo, and entity IDs on a real install depend on your device name.</p>
+    <p>Lightning Storm, Poltergeist, the jump scare and the Demo Reel finale flash rapidly.</p>
+  </footer>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ======================================================================
+   Firmware port: Effects.cpp
+   ====================================================================== */
+const EFFECTS = ["Solid","Candle Flicker","Ghost Breath","Lightning Storm","Witch's Cauldron","Tell-Tale Heart","Haunted Chase","Poltergeist","Possessed Pumpkin","Blood Moon","Demo Reel"];
+const FX_SOLID=0, FX_CANDLE=1, FX_GHOST=2, FX_LIGHTNING=3, FX_CAULDRON=4, FX_HEART=5, FX_CHASE=6, FX_POLTER=7, FX_PUMPKIN=8, FX_BLOOD=9, FX_DEMO=10;
+const MAX_CHAIN = 24, MAXP = 25, FADE_MS = 450, POWER_BUDGET_MA = 1000, MA_CHAIN = 20, MA_ONBOARD = 12;
+const TAU = 6.2831853;
+const clamp01 = x => x < 0 ? 0 : (x > 1 ? 1 : x);
+const mix = (a, b, t) => [a[0] + (b[0]-a[0])*t, a[1] + (b[1]-a[1])*t, a[2] + (b[2]-a[2])*t];
+const scale = (a, k) => [a[0]*k, a[1]*k, a[2]*k];
+const approach = (cur, target, rate, dt) => cur + (target - cur) * (1 - Math.exp(-rate * dt));
+function hsv2rgb(h, s, v) {
+  h = h % 1; if (h < 0) h += 1;
+  const i = Math.floor(h * 6), f = h * 6 - i;
+  const p = v*(1-s), q = v*(1-f*s), t = v*(1-(1-f)*s);
+  switch (i % 6) { case 0: return [v,t,p]; case 1: return [q,v,p]; case 2: return [p,v,t]; case 3: return [p,q,v]; case 4: return [t,p,v]; default: return [v,p,q]; }
+}
+
+class Effects {
+  constructor() {
+    this.a = new Float64Array(MAXP); this.b = new Float64Array(MAXP); this.c = new Float64Array(MAXP);
+    this.wake = new Float64Array(MAXP); this.col = Array.from({length: MAXP}, () => [0,0,0]);
+    this.begin(1);
+  }
+  rnd() { let x = this.rng; x = (x ^ (x << 13)) >>> 0; x = (x ^ (x >>> 17)) >>> 0; x = (x ^ (x << 5)) >>> 0; this.rng = x; return x; }
+  rndf() { return (this.rnd() >>> 8) * (1 / 16777216); }
+  rndr(a, b) { return a + (b - a) * this.rndf(); }
+  begin(seed) { this.rng = (seed >>> 0) || 0x9E3779B9; this.wake.fill(0); this.n = 0; this.t = 0; this.last = 255; this.resetState(); }
+  resetState() {
+    for (let i = 0; i < MAXP; i++) { this.a[i] = 0; this.b[i] = this.rndf(); this.c[i] = this.rndf() * 0.2; this.col[i] = [0,0,0]; }
+    this.timer = this.rndr(1, 3); this.timer2 = 0; this.pos = 0; this.dir = 1; this.phase = 0; this.flashes = 0; this.center = 0;
+  }
+  relayout(n) {
+    n = Math.min(n, MAXP);
+    for (let i = this.n; i < n; i++) { this.wake[i] = 0; this.a[i] = 0; this.b[i] = this.rndf(); this.c[i] = 0; }
+    if (this.pos >= n) this.pos = n ? n - 1 : 0;
+    this.n = n;
+  }
+  prime(n) { n = Math.min(n, MAXP); for (let i = 0; i < n; i++) this.wake[i] = 1; this.n = n; }
+  cue(effect) {
+    switch (effect) {
+      case FX_CANDLE: for (let i = 0; i < this.n; i++) { this.b[i] = this.rndr(0.08, 0.2); this.c[i] = this.rndr(0.25, 0.4); } break;
+      case FX_LIGHTNING: this.phase = 0; this.timer = 0; break;
+      case FX_CAULDRON: for (let i = 0; i < this.n; i++) if (this.a[i] >= 0) this.a[i] = this.rndr(0.4, 0.8); break;
+      case FX_CHASE: this.dir = -this.dir; break;
+      case FX_POLTER: this.timer = 0; break;
+      case FX_PUMPKIN: this.phase = 0; this.timer = 0; break;
+    }
+  }
+  render(effect, out, n, dtMs, speed, base) {
+    n = Math.min(n, MAXP);
+    if (n !== this.n) this.relayout(n);
+    if (effect >= FX_DEMO) effect = FX_SOLID;
+    if (effect !== this.last) { this.resetState(); this.last = effect; }
+    const realDt = Math.min(dtMs * 0.001, 0.1);
+    speed = Math.max(1, Math.min(100, speed));
+    const dt = realDt * Math.pow(2, (speed - 50) / 25);
+    this.t += dt; if (this.t > 3600) this.t -= 3600;
+    switch (effect) {
+      case FX_SOLID: for (let i = 0; i < n; i++) out[i] = base.slice(); break;
+      case FX_CANDLE: this.fxCandle(out, n, dt, base); break;
+      case FX_GHOST: this.fxGhost(out, n, base); break;
+      case FX_LIGHTNING: this.fxLightning(out, n, dt, base); break;
+      case FX_CAULDRON: this.fxCauldron(out, n, dt); break;
+      case FX_HEART: this.fxHeart(out, n, base); break;
+      case FX_CHASE: this.fxChase(out, n, dt, base); break;
+      case FX_POLTER: this.fxPolter(out, n, dt, base); break;
+      case FX_PUMPKIN: this.fxPumpkin(out, n, dt); break;
+      case FX_BLOOD: this.fxBlood(out, n); break;
+    }
+    const ecto = [0.55, 0.75, 1.0];
+    for (let i = 0; i < n; i++) {               // newly plugged-in pixels shiver awake for ~1.5 s
+      if (this.wake[i] >= 1) continue;
+      const w = this.wake[i];
+      const shiver = 0.5 + 0.5 * Math.sin((1 - w) * 37 + i);
+      out[i] = mix(out[i], scale(ecto, 0.65 * shiver), 1 - w);
+      this.wake[i] = clamp01(w + realDt / 1.5);
+    }
+  }
+  fxCandle(o, n, dt, base) {
+    for (let i = 0; i < n; i++) {
+      this.c[i] -= dt;
+      if (this.c[i] <= 0) { this.b[i] = (this.rndf() < 0.06) ? this.rndr(0.12, 0.3) : this.rndr(0.55, 1.0); this.c[i] = this.rndr(0.04, 0.16); }
+      this.a[i] = approach(this.a[i], this.b[i], 18, dt);
+      const lvl = this.a[i], c = scale(base, lvl), ember = 1 - lvl;
+      c[1] *= 1 - 0.55 * ember; c[2] *= 1 - 0.85 * ember;
+      o[i] = c;
+    }
+  }
+  fxGhost(o, n, base) {
+    const pale = [0.85, 0.9, 1.0];
+    for (let i = 0; i < n; i++) {
+      const s = 0.5 - 0.5 * Math.cos(TAU * (this.t / 4) - i * 0.55);
+      o[i] = scale(mix(base, pale, 0.35 * s), 0.03 + 0.97 * s * s);
+    }
+  }
+  fxLightning(o, n, dt, base) {
+    const sky = mix([0, 0.01, 0.06], scale(base, 0.05), 0.3), bolt = [0.85, 0.88, 1.0];
+    this.timer -= dt;
+    if (this.phase === 0 && this.timer <= 0) { this.phase = 1; this.flashes = 1 + (this.rnd() % 4); this.center = n ? (this.rnd() % n) : 0; this.timer = 0; }
+    if (this.phase === 1 && this.timer <= 0) {
+      if (this.flashes > 0) {
+        const peak = this.rndr(0.6, 1.0), reach = this.rndr(1.0, 4.0);
+        for (let i = 0; i < n; i++) { const d = Math.abs(i - this.center) / reach, k = peak * Math.exp(-d * d); if (k > this.a[i]) this.a[i] = k; }
+        this.flashes--; this.timer = this.rndr(0.05, 0.16);
+      } else { this.phase = 0; this.timer = this.rndr(3.0, 9.0); }
+    }
+    for (let i = 0; i < n; i++) { this.a[i] *= Math.exp(-dt * 14); o[i] = mix(sky, bolt, clamp01(this.a[i])); }
+  }
+  fxCauldron(o, n, dt) {
+    const brew = [0, 0.75, 0.12], hex = [0.45, 0, 0.85], foam = [0.6, 1.0, 0.3];
+    for (let i = 0; i < n; i++) {
+      const swirl = 0.5 + 0.5 * Math.sin(this.t * 0.7 + this.b[i] * TAU + i * 0.9);
+      let c = scale(mix(brew, hex, swirl * swirl), 0.35 + 0.25 * swirl);
+      this.c[i] -= dt;
+      if (this.c[i] <= 0 && this.a[i] < 0.05 && this.rndf() < dt * 0.8) { this.a[i] = 0.01; this.c[i] = this.rndr(0.5, 2.0); }
+      if (this.a[i] > 0) { this.a[i] += dt * 1.6; if (this.a[i] >= 1) this.a[i] = -1; c = mix(c, foam, this.a[i] * this.a[i]); }
+      else if (this.a[i] < 0) { this.a[i] += dt * 6; if (this.a[i] > 0) this.a[i] = 0; c = mix(c, [1,1,1], -this.a[i] * 0.6); }
+      o[i] = c;
+    }
+  }
+  fxHeart(o, n, base) {
+    const period = 1.1, mid = (n - 1) * 0.5;
+    for (let i = 0; i < n; i++) {
+      const delay = Math.abs(i - mid) * 0.035;
+      const ph = (this.t - delay + 100 * period) % period;
+      const lub = Math.exp(-ph * 14), dubT = ph - 0.27, dub = dubT > 0 ? 0.7 * Math.exp(-dubT * 12) : 0;
+      o[i] = scale(base, 0.06 + 0.94 * clamp01(lub + dub));
+    }
+  }
+  fxChase(o, n, dt, base) {
+    if (n <= 1) {
+      this.timer -= dt;
+      let lvl = 1;
+      if (this.timer < 0.18) lvl = clamp01(Math.abs(this.timer - 0.09) / 0.09);
+      if (this.timer <= 0) this.timer = this.rndr(2, 6);
+      if (n) o[0] = scale(base, 0.15 + 0.85 * lvl);
+      return;
+    }
+    this.pos += this.dir * dt * 5;
+    if (this.pos >= n - 1) { this.pos = n - 1; this.dir = -1; }
+    if (this.pos <= 0) { this.pos = 0; this.dir = 1; }
+    if (this.rndf() < dt * 0.25) this.dir = -this.dir;
+    for (let i = 0; i < n; i++) {
+      this.a[i] *= Math.exp(-dt * 4);
+      const d = Math.abs(i - this.pos);
+      if (d < 1 && 1 - d > this.a[i]) this.a[i] = 1 - d;
+      o[i] = scale(base, 0.02 + 0.98 * this.a[i] * this.a[i]);
+    }
+  }
+  fxPolter(o, n, dt, base) {
+    if (n && this.rndf() < dt * 3) { const i = this.rnd() % n; this.col[i] = hsv2rgb(this.rndf(), this.rndr(0.7, 1.0), 1); this.a[i] = 1; }
+    this.timer -= dt;
+    if (this.timer <= 0) { this.timer2 = 0.45; this.timer = this.rndr(6, 14); }
+    let stutter = 1;
+    if (this.timer2 > 0) { this.timer2 -= dt; stutter = (this.timer2 % 0.09 < 0.045) ? 0 : 1.4; }   // % keeps the sign, like fmodf
+    for (let i = 0; i < n; i++) { this.a[i] *= Math.exp(-dt * 2.2); o[i] = scale(mix(scale(base, 0.08), this.col[i], this.a[i]), stutter); }
+  }
+  fxPumpkin(o, n, dt) {
+    const orange = [1.0, 0.38, 0.02], sick = [0.35, 1.0, 0];
+    this.fxCandle(o, n, dt, orange);
+    this.timer -= dt;
+    if (this.phase === 0 && this.timer <= 0) { this.phase = 1; this.timer2 = this.rndr(1.2, 2.2); }
+    if (this.phase === 1) {
+      this.timer2 -= dt;
+      const jitter = this.rndr(0.4, 1.3);
+      for (let i = 0; i < n; i++) o[i] = mix(o[i], scale(sick, jitter), 0.85);
+      if (this.timer2 <= 0) { this.phase = 0; this.timer = this.rndr(10, 25); }
+    }
+  }
+  fxBlood(o, n) {
+    const blood = [0.7, 0, 0], rust = [1.0, 0.22, 0], night = [0.08, 0, 0.01];
+    for (let i = 0; i < n; i++) {
+      const w = 0.5 + 0.5 * Math.sin(this.t * 0.35 - i * 0.45);
+      const w2 = 0.5 + 0.5 * Math.sin(this.t * 0.13 + i * 0.21 + 1.7);
+      o[i] = w < 0.5 ? mix(night, blood, w * 2) : mix(blood, rust, (w - 0.5) * 2 * w2);
+    }
+  }
+}
+
+/* ======================================================================
+   Firmware port: Demo.cpp
+   ====================================================================== */
+const XF = 1.2;
+const SCRIPT = [
+  {k:'roll',  fx:0, col:[0,0,0],       s:6,  c1:-1,  c2:-1, name:'Roll call'},
+  {k:'wheel', fx:0, col:[0,0,0],       s:8,  c1:-1,  c2:-1, name:'Colour wheel'},
+  {k:'fx', fx:FX_CANDLE,    col:[255,90,0],   s:8,  c1:5,   c2:-1, name:'Candle Flicker'},
+  {k:'fx', fx:FX_GHOST,     col:[120,170,255],s:8,  c1:-1,  c2:-1, name:'Ghost Breath'},
+  {k:'fx', fx:FX_LIGHTNING, col:[150,170,255],s:10, c1:1.6, c2:6,  name:'Lightning Storm'},
+  {k:'fx', fx:FX_CAULDRON,  col:[0,200,40],   s:8,  c1:4,   c2:-1, name:"Witch's Cauldron"},
+  {k:'fx', fx:FX_HEART,     col:[255,0,20],   s:8,  c1:-1,  c2:-1, name:'Tell-Tale Heart'},
+  {k:'fx', fx:FX_CHASE,     col:[80,255,40],  s:8,  c1:4.5, c2:-1, name:'Haunted Chase'},
+  {k:'fx', fx:FX_POLTER,    col:[150,0,255],  s:8,  c1:3,   c2:6,  name:'Poltergeist'},
+  {k:'fx', fx:FX_PUMPKIN,   col:[255,90,0],   s:12, c1:5,   c2:-1, name:'Possessed Pumpkin'},
+  {k:'fx', fx:FX_BLOOD,     col:[180,0,0],    s:8,  c1:-1,  c2:-1, name:'Blood Moon'},
+  {k:'finale', fx:0, col:[255,140,40], s:4,  c1:-1,  c2:-1, name:'Finale'},
+];
+const smooth = x => { x = clamp01(x); return x * x * (3 - 2 * x); };
+class DemoReel {
+  constructor() { this.fx = [new Effects(), new Effects()]; this.buf = Array.from({length: MAXP}, () => [0,0,0]); this.reset(1); }
+  reset(n) { this.n = Math.min(n, MAXP); this.seg = 0; this.t = 0; this.active = 0; this.nextStarted = false; this.cued1 = this.cued2 = false; this.changed = true; this.start(this.fx[0], 0, this.n); }
+  start(fx, seg, n) { fx.begin((0xD3E0 + seg * 7919) >>> 0); fx.prime(n); }
+  renderSeg(seg, fx, t, out, n, dtMs, speed) {
+    const s = SCRIPT[seg];
+    if (s.k === 'roll') {
+      const lit = (t / 3) * n;
+      for (let i = 0; i < n; i++) {
+        const hue = i / (n > 1 ? n : 1) + (t > 3.6 ? (t - 3.6) * 0.05 : 0);
+        const on = clamp01(lit - i);
+        const pop = (lit - i > 0 && lit - i < 1) ? 0.35 * (1 - (lit - i)) : 0;
+        let c = mix(scale(hsv2rgb(hue, 1, 1), on), [1,1,1], pop);
+        if (t >= 3 && t < 3.6) c = mix(c, [1,1,1], Math.sin((t - 3) / 0.6 * Math.PI));
+        out[i] = c;
+      }
+    } else if (s.k === 'wheel') {
+      for (let i = 0; i < n; i++) out[i] = hsv2rgb(i / (n > 1 ? n : 1) * 0.75 + t * 0.12, 1, 1);
+    } else if (s.k === 'finale') {
+      const ember = s.col.map(v => v / 255);
+      const c = t < 1.2 ? ((t % 0.4) < 0.12 ? [1,1,1] : [0,0,0]) : scale(ember, 1 - smooth((t - 1.2) / 2));
+      for (let i = 0; i < n; i++) out[i] = c.slice();
+    } else {
+      fx.render(s.fx, out, n, dtMs, speed, s.col.map(v => v / 255));
+    }
+  }
+  render(out, n, dtMs, speed) {
+    n = Math.min(n, MAXP); this.n = n;
+    speed = Math.max(1, Math.min(100, speed));
+    const dt = Math.min(dtMs * 0.001, 0.1) * Math.pow(2, (speed - 50) / 25);
+    const cur = SCRIPT[this.seg], nextSeg = (this.seg + 1) % SCRIPT.length, fx = this.fx[this.active];
+    if (cur.k === 'fx') {
+      if (!this.cued1 && cur.c1 >= 0 && this.t >= cur.c1) { fx.cue(cur.fx); this.cued1 = true; }
+      if (!this.cued2 && cur.c2 >= 0 && this.t >= cur.c2) { fx.cue(cur.fx); this.cued2 = true; }
+    }
+    this.renderSeg(this.seg, fx, this.t, out, n, dtMs, speed);
+    const xfStart = cur.s - XF;
+    if (this.t >= xfStart) {
+      const nx = this.fx[this.active ^ 1];
+      if (!this.nextStarted) { this.start(nx, nextSeg, n); this.nextStarted = true; }
+      this.renderSeg(nextSeg, nx, this.t - xfStart, this.buf, n, dtMs, speed);
+      const k = smooth((this.t - xfStart) / XF);
+      for (let i = 0; i < n; i++) out[i] = mix(out[i], this.buf[i], k);
+    }
+    this.t += dt;
+    if (this.t >= cur.s) { this.t -= xfStart; this.seg = nextSeg; this.active ^= 1; this.nextStarted = false; this.cued1 = this.cued2 = false; this.changed = true; }
+  }
+}
+
+/* ======================================================================
+   Device state + Renderer.cpp port
+   ====================================================================== */
+const KIOSK = location.hash === '#kiosk';
+const S = { on: true, level: 200, color: [255, 90, 0], effect: FX_CANDLE, speed: 50, output: 0, spotlight: 0, manual: 0,
+            physical: KIOSK ? 14 : 6, detected: KIOSK ? 14 : 6, loopback: true };
+if (KIOSK || location.hash === '#reel') S.effect = FX_DEMO;
+const fx = new Effects(); fx.begin((0xC0FFEE ^ 0x31) >>> 0);
+const demo = new DemoReel();
+let demoActive = false, pendingCue = -1, fade = 1;
+const px = Array.from({length: MAXP}, () => [0,0,0]);
+const OUT = { onboard: [0,0,0], chain: Array.from({length: MAX_CHAIN}, () => [0,0,0]), mA: 0, onboardUsed: false, chainCount: 0 };
+
+const chainCount = () => Math.max(0, Math.min(MAX_CHAIN, S.manual > 0 ? S.manual : S.detected));
+const virtualCount = (c, o) => o === 1 ? 1 : o === 2 ? c : o === 3 ? 1 + c : (c ? c : 1);
+const g8 = v => Math.round(Math.pow(clamp01(v), 2.2) * 255);
+
+function frame(dtMs) {
+  const cc = chainCount(), n = virtualCount(cc, S.output);
+  const base = S.color.map(v => v / 255);
+  if (S.effect === FX_DEMO) {
+    if (!demoActive) { demo.reset(n); demoActive = true; }
+    demo.render(px, n, dtMs, S.speed);
+  } else {
+    demoActive = false;
+    fx.render(S.effect, px, n, dtMs, S.speed, base);
+    if (pendingCue >= 0) { fx.cue(pendingCue); pendingCue = -1; }
+  }
+  if (S.spotlight >= 1 && S.spotlight <= n) px[S.spotlight - 1] = base.slice();
+
+  const target = S.on ? 1 : 0, step = dtMs / FADE_MS;
+  fade = fade < target ? Math.min(target, fade + step) : Math.max(target, fade - step);
+  const bright = (S.level / 255) * fade;
+
+  const o = S.output;
+  const onboardUsed = o === 1 || o === 3 || (o === 0 && cc === 0);
+  const chainUsed = o === 2 || o === 3 || (o === 0 && cc > 0);
+  let v = 0;
+  OUT.onboard = [0,0,0];
+  for (let i = 0; i < MAX_CHAIN; i++) OUT.chain[i] = [0,0,0];
+  if (onboardUsed && n > 0) OUT.onboard = scale(px[v++], bright).map(clamp01);
+  if (chainUsed) for (let i = 0; i < cc; i++) OUT.chain[i] = scale(px[v++] || [0,0,0], bright).map(clamp01);
+
+  // power limiter: estimate mA from the gamma-corrected 8-bit drive, scale the frame into budget
+  let sumChain = 0;
+  for (let i = 0; i < cc; i++) sumChain += g8(OUT.chain[i][0]) + g8(OUT.chain[i][1]) + g8(OUT.chain[i][2]);
+  const sumOnboard = g8(OUT.onboard[0]) + g8(OUT.onboard[1]) + g8(OUT.onboard[2]);
+  const ma = sumChain * (MA_CHAIN / 255) + sumOnboard * (MA_ONBOARD / 255);
+  const ps = ma > POWER_BUDGET_MA ? POWER_BUDGET_MA / ma : 1;
+  if (ps < 1) {
+    const k = Math.pow(ps, 1 / 2.2);    // drive is scaled after gamma; the eye sees it before
+    OUT.onboard = scale(OUT.onboard, k);
+    for (let i = 0; i < cc; i++) OUT.chain[i] = scale(OUT.chain[i], k);
+  }
+  OUT.mA = ma * ps; OUT.limited = ps < 1; OUT.onboardUsed = onboardUsed; OUT.chainCount = cc; OUT.n = n;
+}
+
+/* chain probe: every 1.5 s; a new count must be seen on two consecutive probes */
+let probeAcc = 0, candidate = -1;
+function probeTick(dtMs) {
+  probeAcc += dtMs;
+  if (probeAcc < 1500) return;
+  probeAcc -= 1500;
+  const sample = S.loopback ? S.physical : 0;
+  if (sample === S.detected) candidate = -1;
+  else if (sample === candidate) { candidate = -1; const prev = chainCount(); S.detected = sample; chainChanged(prev, 'probe'); }
+  else candidate = sample;
+}
+
+/* ======================================================================
+   Home Assistant side
+   ====================================================================== */
+const E = {
+  light: 'light.nanoc6_spooky_haunted_light', effect: 'select.nanoc6_spooky_effect', output: 'select.nanoc6_spooky_output',
+  speed: 'number.nanoc6_spooky_effect_speed', spot: 'number.nanoc6_spooky_spotlight_pixel', scare: 'button.nanoc6_spooky_jump_scare',
+  chain: 'event.nanoc6_spooky_chain_change', manual: 'number.nanoc6_spooky_manual_led_count'
+};
+const OUTPUT_OPTS = ['auto', 'onboard', 'grove', 'both'];
+const flags = { toggledOff: false, toggledOn: false, colour: false, added: false, removed: false, scared: false };
+const events = { type: 'led_added', previous: 5, current: 6, at: Date.now() - 4 * 60000 };
+const logEntries = [];
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function log(text, ago = 0) { logEntries.unshift({ text, at: Date.now() - ago }); if (logEntries.length > 7) logEntries.pop(); renderLog(); }
+function rel(at) {
+  const s = Math.round((Date.now() - at) / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return s + ' s ago';
+  const m = Math.round(s / 60);
+  return m + ' min ago';
+}
+function renderLog() {
+  $('#log').innerHTML = logEntries.map(e => `<li><span>${e.text}</span><time>${rel(e.at)}</time></li>`).join('');
+  $('#ev-time').textContent = rel(events.at);
+}
+
+/* yaml panel */
+const yq = v => Array.isArray(v) ? `[${v.join(', ')}]` : (typeof v === 'string' && /[:'#]/.test(v) ? `"${v}"` : String(v));
+function action(svc, entity, data) {
+  let y = `action: ${svc}\ntarget:\n  entity_id: ${entity}`;
+  if (data) { y += '\ndata:'; for (const [k, v] of Object.entries(data)) y += `\n  ${k}: ${yq(v)}`; }
+  return y;
+}
+function setYaml(title, text) {
+  $('#yaml-title').textContent = title;
+  $('#yaml').innerHTML = esc(text).split('\n').map(line => {
+    if (/^\s*#/.test(line)) return `<span class="c">${line}</span>`;
+    return line.replace(/^(\s*-?\s*)([a-z_]+):/, '$1<span class="k">$2</span>:');
+  }).join('\n');
+}
+
+/* ---------- controls ---------- */
+const selFx = $('#sel-effect'), miFx = $('#mi-effect');
+for (const sel of [selFx, miFx]) EFFECTS.forEach((name, i) => sel.add(new Option(name, String(i))));
+
+const SWATCHES = [['Pumpkin', [255,90,0]], ['Ghost light', [120,170,255]], ['Toxic green', [80,255,40]], ['Blood red', [255,0,20]], ['Hex violet', [150,0,255]], ['Bone', [255,214,170]]];
+const swWrap = $('#swatches');
+SWATCHES.forEach(([name, rgb]) => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'swatch'; b.title = name; b.setAttribute('aria-label', name);
+  b.style.background = `rgb(${rgb})`; b.dataset.rgb = rgb.join(',');
+  b.addEventListener('click', () => setColour(rgb));
+  swWrap.appendChild(b);
+});
+const custom = document.createElement('input');
+custom.type = 'color'; custom.id = 'mi-custom'; custom.title = 'Any colour'; custom.setAttribute('aria-label', 'Pick any colour');
+custom.addEventListener('change', () => { const h = custom.value; setColour([1,3,5].map(i => parseInt(h.substr(i, 2), 16))); });
+swWrap.appendChild(custom);
+
+function setColour(rgb) {
+  S.color = rgb.slice(); flags.colour = true;
+  log(`Haunted light changed colour to <em>rgb(${rgb.join(', ')})</em> triggered by action light.turn_on`);
+  setYaml('Do it from an automation', action('light.turn_on', E.light, { rgb_color: rgb }));
+  sync();
+}
+function setOn(on, src = 'light') {
+  if (S.on === on) return;
+  S.on = on;
+  if (on) flags.toggledOn = flags.toggledOff; else flags.toggledOff = true;
+  log(`Haunted light turned ${on ? 'on' : 'off'} triggered by action light.turn_${on ? 'on' : 'off'}`);
+  setYaml('Do it from an automation', action(`light.turn_${on ? 'on' : 'off'}`, E.light, on ? { transition: 0.45 } : null));
+  sync();
+}
+function setEffect(i, via) {
+  i = +i; if (i === S.effect) return;
+  S.effect = i;
+  log(`Effect changed to <em>${esc(EFFECTS[i])}</em>`);
+  setYaml('Do it from an automation', via === 'light'
+    ? action('light.turn_on', E.light, { effect: EFFECTS[i] })
+    : action('select.select_option', E.effect, { option: EFFECTS[i] }));
+  sync();
+}
+
+$('#sw-light').addEventListener('click', () => setOn(!S.on));
+$('#mi-power').addEventListener('click', () => setOn(!S.on));
+selFx.addEventListener('change', () => setEffect(selFx.value, 'select'));
+miFx.addEventListener('change', () => setEffect(miFx.value, 'light'));
+$('#sel-output').addEventListener('change', e => {
+  const prevN = OUT.n; S.output = +e.target.value;
+  log(`Output changed to <em>${esc(e.target.selectedOptions[0].text)}</em>`);
+  setYaml('Do it from an automation', action('select.select_option', E.output, { option: OUTPUT_OPTS[S.output] }));
+  checkSpot(); sync();
+});
+const rSpeed = $('#rng-speed');
+rSpeed.addEventListener('input', () => { S.speed = +rSpeed.value; sync(); });
+rSpeed.addEventListener('change', () => {
+  log(`Effect speed changed to <em>${S.speed}</em>`);
+  setYaml('Do it from an automation', action('number.set_value', E.speed, { value: S.speed }) +
+    `\n# Every 25 steps doubles or halves the pace: 25 is half speed, 75 is double.`);
+});
+const rSpot = $('#rng-spot');
+rSpot.addEventListener('input', () => { S.spotlight = +rSpot.value; sync(); });
+rSpot.addEventListener('change', () => {
+  log(S.spotlight ? `Spotlight pixel changed to <em>${S.spotlight}</em>` : 'Spotlight pixel switched off');
+  setYaml('Do it from an automation', action('number.set_value', E.spot, { value: S.spotlight }) + `\n# 0 switches the spotlight off. The maximum is the live pixel count.`);
+});
+const rManual = $('#rng-manual');
+rManual.addEventListener('input', () => { const prev = chainCount(); S.manual = +rManual.value; chainChanged(prev, 'manual'); });
+rManual.addEventListener('change', () => {
+  log(S.manual ? `Manual LED count changed to <em>${S.manual}</em>` : 'Manual LED count set to auto-detect');
+  setYaml('Do it from an automation', action('number.set_value', E.manual, { value: S.manual }) + `\n# Use this when the return wire for auto-counting isn't fitted.`);
+});
+const miBright = $('#mi-bright');
+miBright.addEventListener('input', () => { S.level = +miBright.value; if (!S.on) S.on = true; sync(); });
+miBright.addEventListener('change', () => {
+  log(`Haunted light brightness changed to <em>${Math.round(S.level / 2.55)}%</em>`);
+  setYaml('Do it from an automation', action('light.turn_on', E.light, { brightness: S.level }));
+});
+
+/* more-info dialog */
+const mi = $('#mi');
+function openMI() { mi.hidden = false; $('#mi-close').focus(); }
+function closeMI() { mi.hidden = true; $('#light-name').focus(); }
+$('#light-name').addEventListener('click', openMI);
+$('#light-ico').addEventListener('click', openMI);
+$('#mi-close').addEventListener('click', closeMI);
+mi.addEventListener('click', e => { if (e.target === mi) closeMI(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !mi.hidden) closeMI(); });
+
+/* jump scare: mirrors button.py: save, full-brightness Lightning Storm, restore after 8 s */
+let scare = null;
+$('#btn-scare').addEventListener('click', () => {
+  if (!scare) scare = { on: S.on, level: S.level, effect: S.effect };
+  else clearInterval(scare.tick);
+  scare.until = Date.now() + 8000;
+  S.on = true; fade = 1; S.level = 255; S.effect = FX_LIGHTNING; pendingCue = FX_LIGHTNING; flags.scared = true;
+  log('Jump scare pressed <em>by you</em>');
+  setYaml('Doorbell → jump scare', `- alias: Trick-or-treat scare\n  triggers:\n    - trigger: state\n      entity_id: binary_sensor.front_doorbell\n      to: "on"\n  actions:\n    - action: button.press\n      target:\n        entity_id: ${E.scare}`);
+  const btn = $('#btn-scare');
+  const tick = () => {
+    const left = Math.ceil((scare.until - Date.now()) / 1000);
+    if (left <= 0) {
+      clearInterval(scare.tick);
+      S.on = scare.on; S.level = scare.level; S.effect = scare.effect; scare = null;
+      btn.disabled = false; btn.textContent = 'Press';
+      log('Jump scare over, previous state restored'); sync(); return;
+    }
+    btn.disabled = true; btn.textContent = `Scaring… ${left} s`;
+  };
+  scare.tick = setInterval(tick, 250); tick(); sync();
+});
+
+/* ---------- chain changes ---------- */
+function checkSpot() {
+  const n = virtualCount(chainCount(), S.output);
+  if (S.spotlight > n) { S.spotlight = 0; log('Spotlight pixel switched off: the string got shorter than the spotlit pixel'); }
+}
+function chainChanged(prev, why) {
+  const cur = chainCount();
+  if (cur !== prev) {
+    events.type = cur > prev ? 'led_added' : 'led_removed';
+    events.previous = prev; events.current = cur; events.at = Date.now();
+    const pixels = virtualCount(cur, S.output);
+    log(`Chain change fired <em>${events.type}</em> (${prev} → ${cur})`);
+    if (why !== 'manual') setYaml('Event just fired: Chain change',
+      `# Fired by Spooky Lights when the firmware's count changed\nevent_type: ${events.type}\nprevious: ${prev}\ncurrent: ${cur}\npixels: ${pixels}\n\n# Trigger on it in an automation:\ntriggers:\n  - trigger: state\n    entity_id: ${E.chain}\n    attribute: event_type\n    to: ${events.type}`);
+    checkSpot();
+  }
+  sync(); buildChain();
+}
+
+/* ---------- bench rig ---------- */
+const chainEl = $('#chain');
+function buildChain() {
+  let h = '';
+  for (let i = 0; i < S.physical; i++) h += `<button class="mod" type="button" data-i="${i}" title="Unplug module ${i + 1}" aria-label="Unplug module ${i + 1}"><span class="dot"></span><span class="num">${i + 1}</span></button>`;
+  if (S.physical < MAX_CHAIN) h += `<button class="socket" type="button" id="socket" title="Plug in module ${S.physical + 1}" aria-label="Plug in module ${S.physical + 1}">+</button>`;
+  chainEl.innerHTML = h;
+  dotEls = [...chainEl.querySelectorAll('.mod')];
+  $('#btn-plug').disabled = S.physical >= MAX_CHAIN;
+}
+let dotEls = [];
+function plug() {
+  if (S.physical >= MAX_CHAIN) return;
+  S.physical++; flags.added = true;
+  log(`Module ${S.physical} plugged in <em>(waiting for the chain probe)</em>`);
+  buildChain(); updateBench();
+}
+chainEl.addEventListener('click', e => {
+  const m = e.target.closest('.mod');
+  if (m) {
+    const i = +m.dataset.i, lost = S.physical - i;
+    S.physical = i; flags.removed = true;
+    log(lost > 1 ? `Module ${i + 1} unplugged: modules ${i + 1}–${i + lost} went dark, the data stops at the gap` : `Module ${i + 1} unplugged`);
+    buildChain(); updateBench();
+  } else if (e.target.closest('#socket')) plug();
+});
+$('#btn-plug').addEventListener('click', plug);
+$('#chk-loop').addEventListener('change', e => {
+  S.loopback = e.target.checked;
+  log(S.loopback ? 'Return wire connected: auto-counting resumes' : 'Return wire removed: the probe sees no modules. Set Manual LED count to drive them');
+});
+
+function updateBench() {
+  const cc = chainCount(), pend = S.loopback && S.physical !== S.detected;
+  const parts = [`${S.physical} plugged in`, `driving ${cc}`];
+  let html = parts.join(' · ');
+  if (pend) html += ' · <span class="probing">probing…</span>';
+  html += ` · ≈ ${Math.round(OUT.mA)} mA of 1000${OUT.limited ? ' (limited)' : ''}`;
+  $('#bench-stat').innerHTML = html;
+}
+
+/* ---------- sync HA UI from state ---------- */
+function rgbCss(c, k = 1) { return `rgb(${Math.round(c[0] * k)},${Math.round(c[1] * k)},${Math.round(c[2] * k)})`; }
+function sync() {
+  const cc = chainCount(), n = virtualCount(cc, S.output), pct = Math.round(S.level / 2.55);
+  const sw = $('#sw-light'); sw.setAttribute('aria-checked', String(S.on));
+  $('#light-sub').innerHTML = `<span class="src sl">SPOOKY</span>${S.on ? `On · ${pct}% · ${esc(EFFECTS[S.effect])}` : 'Off'}`;
+  $('#light-ico').style.color = S.on ? rgbCss(S.color) : '';
+  $('#light-ico').style.background = S.on ? `rgba(${S.color.join(',')},.16)` : '';
+  selFx.value = miFx.value = String(S.effect);
+  $('#sel-output').value = String(S.output);
+  rSpeed.value = S.speed; $('#out-speed').textContent = S.speed;
+  rSpot.max = n; rSpot.value = S.spotlight; $('#out-spot').textContent = S.spotlight ? S.spotlight : 'Off';
+  $('#spot-sub').innerHTML = `<span class="src sl">SPOOKY</span>max ${n}, follows the pixel count`;
+  rManual.value = S.manual; $('#out-manual').textContent = S.manual ? S.manual : 'Auto';
+  $('#st-pixels').textContent = n;
+  $('#pix-sub').innerHTML = `<span class="src sl">SPOOKY</span>detected ${S.detected} · manual ${S.manual} · ${OUTPUT_OPTS[S.output]}`;
+  $('#st-detected').textContent = S.detected;
+  $('#st-event').firstChild.textContent = events.type;
+  $('#ev-sub').innerHTML = `<span class="src sl">SPOOKY</span>previous ${events.previous} · current ${events.current}`;
+  miBright.value = S.level;
+  $('#mi-state').innerHTML = S.on ? `${pct}%<small>${esc(EFFECTS[S.effect])}</small>` : `Off<small>${esc(EFFECTS[S.effect])}</small>`;
+  $('#mi-power').textContent = S.on ? 'Turn off' : 'Turn on';
+  custom.value = '#' + S.color.map(v => v.toString(16).padStart(2, '0')).join('');
+  swWrap.querySelectorAll('.swatch').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.rgb === S.color.join(','))));
+  updateBench(); updateCaption(true); tourCheck();
+}
+
+/* ======================================================================
+   The porch scene
+   ====================================================================== */
+const W = 960, H = 540;
+const cv = $('#cv'), ctx = cv.getContext('2d');
+const bg = document.createElement('canvas'), bctx = bg.getContext('2d');
+let K = 1;
+function mulberry(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const quad = (p0, c, p1, t) => [(1-t)*(1-t)*p0[0] + 2*(1-t)*t*c[0] + t*t*p1[0], (1-t)*(1-t)*p0[1] + 2*(1-t)*t*c[1] + t*t*p1[1]];
+const LIMB = [[82, 360], [190, 190], [350, 168]];
+const TRUNK = [[64, 548], [76, 330], [118, 108]];
+const GL = [116, 120], GR = [946, 116], SAG = 75;
+const garlandAt = t => [GL[0] + (GR[0] - GL[0]) * t, GL[1] + (GR[1] - GL[1]) * t + SAG * 4 * t * (1 - t)];
+
+// chain order runs left → right through the props, then back along the string lights
+const PROPS = [
+  { type: 'ghost', hang: quad(...LIMB, 0.30), str: 48, s: 40 },
+  { type: 'ghost', hang: quad(...LIMB, 0.72), str: 44, s: 50 },
+  { type: 'pumpkin', x: 318, y: 494, s: 68 },
+  { type: 'skull', x: 454, y: 488, s: 40 },
+  { type: 'pumpkin', x: 560, y: 406, s: 42 },
+  { type: 'skull', x: 658, y: 406, s: 33 },
+  { type: 'pumpkin', x: 830, y: 406, s: 54 },
+  { type: 'ghost', hang: [888, 188], str: 28, s: 40 },
+];
+for (let j = 0; j < 16; j++) { const p = garlandAt(0.94 - j * (0.88 / 15)); PROPS.push({ type: 'bulb', x: p[0], y: p[1] + 6, s: 7 }); }
+const JAR = { x: 734, y: 406, s: 30 };
+
+function resize() {
+  const w = cv.clientWidth || 960, dpr = Math.min(2, window.devicePixelRatio || 1);
+  const pw = Math.max(320, Math.round(w * dpr));
+  if (pw === cv.width && bg.width === pw) return;
+  cv.width = pw; cv.height = Math.round(pw * H / W); K = pw / W;
+  bg.width = cv.width; bg.height = cv.height;
+  drawBackground();
+}
+
+function strokeQuad(c, P, w0, w1, col) {
+  c.strokeStyle = col; c.lineCap = 'round';
+  const N = 26;
+  for (let i = 0; i < N; i++) {
+    const a = quad(...P, i / N), b = quad(...P, (i + 1) / N);
+    c.lineWidth = w0 + (w1 - w0) * (i / N);
+    c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+  }
+}
+function twig(c, rng, x, y, ang, len, w, d) {
+  if (d <= 0 || len < 4) return;
+  const x2 = x + Math.cos(ang) * len, y2 = y + Math.sin(ang) * len;
+  c.lineWidth = w; c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo((x + x2) / 2 + (rng() - .5) * len * .3, (y + y2) / 2 + (rng() - .5) * len * .3, x2, y2); c.stroke();
+  const kids = 2 + (rng() < .3 ? 1 : 0);
+  for (let k = 0; k < kids; k++) twig(c, rng, x2, y2, ang + (rng() - .5) * 1.3, len * (.55 + rng() * .2), w * .62, d - 1);
+}
+
+function drawBackground() {
+  const c = bctx, rng = mulberry(1031);
+  c.setTransform(K, 0, 0, K, 0, 0);
+  let g = c.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#06051a'); g.addColorStop(.42, '#170f33'); g.addColorStop(.62, '#2a1742'); g.addColorStop(1, '#120c1c');
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  for (let i = 0; i < 150; i++) {
+    const x = rng() * W, y = rng() * 320, r = .4 + rng() * 1.1;
+    c.fillStyle = `rgba(230,225,255,${.25 + rng() * .65})`; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+  }
+  // moon
+  g = c.createRadialGradient(700, 88, 20, 700, 88, 170);
+  g.addColorStop(0, 'rgba(210,215,255,.30)'); g.addColorStop(1, 'rgba(210,215,255,0)');
+  c.fillStyle = g; c.fillRect(500, 0, 400, 300);
+  c.fillStyle = '#ece6d2'; c.beginPath(); c.arc(700, 88, 34, 0, TAU); c.fill();
+  c.fillStyle = 'rgba(120,110,90,.18)';
+  [[688, 78, 7], [712, 98, 5], [704, 72, 3.5], [690, 102, 4]].forEach(([x, y, r]) => { c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill(); });
+  // far hill + house
+  c.fillStyle = '#170f28'; c.beginPath(); c.moveTo(0, H);
+  for (let x = 0; x <= W; x += 10) c.lineTo(x, 338 + 16 * Math.sin(x / 150) + 8 * Math.sin(x / 47 + 1));
+  c.lineTo(W, H); c.fill();
+  c.fillStyle = '#0f0a1c'; c.fillRect(528, 300, 46, 30); c.beginPath(); c.moveTo(522, 302); c.lineTo(551, 278); c.lineTo(580, 302); c.fill(); c.fillRect(564, 282, 6, 14);
+  c.fillStyle = 'rgba(255,170,80,.55)'; c.fillRect(538, 309, 7, 8);
+  // near hill + ground
+  c.fillStyle = '#100b1c'; c.beginPath(); c.moveTo(0, H);
+  for (let x = 0; x <= W; x += 10) c.lineTo(x, 400 + 10 * Math.sin(x / 120 + 2));
+  c.lineTo(W, H); c.fill();
+  g = c.createLinearGradient(0, 440, 0, H); g.addColorStop(0, '#0d0a15'); g.addColorStop(1, '#060509');
+  c.fillStyle = g; c.fillRect(0, 452, W, H - 452);
+  // stone wall
+  c.fillStyle = '#0d0a13'; c.fillRect(498, 404, 462, 70);
+  for (let row = 0; row < 3; row++) {
+    const y = 408 + row * 22, off = row % 2 ? 22 : 0;
+    for (let x = 498 - off; x < W; x += 44) {
+      const v = 24 + Math.floor(rng() * 8);
+      c.fillStyle = `rgb(${v},${v - 4},${v + 8})`;
+      c.fillRect(Math.max(500, x + 2), y, Math.min(40, W - x - 2), 19);
+    }
+  }
+  c.fillStyle = '#2a2433'; c.fillRect(494, 398, 466, 9);
+  // lamp post with a hook for the ghost
+  c.fillStyle = '#08070c'; c.fillRect(940, 110, 11, 296);
+  c.beginPath(); c.arc(945.5, 108, 7, 0, TAU); c.fill();
+  c.strokeStyle = '#08070c'; c.lineWidth = 4; c.beginPath(); c.moveTo(944, 186); c.lineTo(884, 186); c.moveTo(940, 214); c.lineTo(906, 186); c.stroke();
+  // tree
+  const bark = '#05040a';
+  strokeQuad(c, TRUNK, 30, 6, bark);
+  strokeQuad(c, LIMB, 15, 3, bark);
+  c.strokeStyle = bark;
+  [[.45, -.95, 48], [.7, -.5, 42], [.98, -.2, 34], [.2, -1.6, 40], [.85, .35, 30]].forEach(([t, a, l]) => { const p = quad(...LIMB, t); twig(c, rng, p[0], p[1], a, l, 5, 4); });
+  [[.98, -1.9, 46], [.98, -1.15, 52], [.7, -2.5, 54], [.55, -.4, 40]].forEach(([t, a, l]) => { const p = quad(...TRUNK, t); twig(c, rng, p[0], p[1], a, l, 6, 4); });
+  // grass tufts
+  c.strokeStyle = '#040307'; c.lineWidth = 1.6;
+  for (let x = 0; x < W; x += 5) {
+    const h = 6 + rng() * 14, y = 530 + rng() * 10;
+    c.beginPath(); c.moveTo(x, y + 10); c.quadraticCurveTo(x + (rng() - .5) * 6, y - h / 2, x + (rng() - .5) * 8, y - h); c.stroke();
+  }
+}
+
+/* ---- prop geometry (unit space) ---- */
+function ellipsePath(p, x, y, rx, ry) { p.moveTo(x + rx, y); p.ellipse(x, y, rx, ry, 0, 0, TAU); }
+function rrect(p, x, y, w, h, r) { p.moveTo(x + r, y); p.arcTo(x + w, y, x + w, y + h, r); p.arcTo(x + w, y + h, x, y + h, r); p.arcTo(x, y + h, x, y, r); p.arcTo(x, y, x + w, y, r); p.closePath(); }
+function poly(p, pts) { p.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) p.lineTo(pts[i][0], pts[i][1]); p.closePath(); }
+
+const PK_LOBES = [[0, 0, .42, .72], [-.32, .02, .42, .70], [.32, .02, .42, .70], [-.6, .06, .38, .6], [.6, .06, .38, .6]];
+const PK = { body: new Path2D(), face: new Path2D(), stem: new Path2D() };
+PK_LOBES.forEach(l => ellipsePath(PK.body, ...l));
+poly(PK.face, [[-.44, -.06], [-.16, -.06], [-.31, -.34]]);
+poly(PK.face, [[.16, -.06], [.44, -.06], [.31, -.34]]);
+poly(PK.face, [[-.07, .1], [.07, .1], [0, -.02]]);
+poly(PK.face, [[-.52, .17], [-.36, .26], [-.27, .18], [-.16, .29], [-.06, .21], [.06, .3], [.16, .21], [.28, .29], [.36, .18], [.52, .17], [.4, .42], [.14, .5], [.08, .42], [-.04, .5], [-.4, .42]]);
+PK.stem.moveTo(-.07, -.62); PK.stem.quadraticCurveTo(-.06, -.86, .06, -.96); PK.stem.lineTo(.13, -.9); PK.stem.quadraticCurveTo(.06, -.8, .08, -.62); PK.stem.closePath();
+
+const SK = { body: new Path2D(), holes: new Path2D(), teeth: new Path2D() };
+SK.body.moveTo(.55, -.15); SK.body.arc(0, -.15, .55, 0, TAU);
+rrect(SK.body, -.32, .1, .64, .45, .14);
+ellipsePath(SK.body, -.3, .1, .18, .14); ellipsePath(SK.body, .3, .1, .18, .14);
+ellipsePath(SK.holes, -.21, -.02, .155, .14); ellipsePath(SK.holes, .21, -.02, .155, .14);
+poly(SK.holes, [[0, .12], [-.075, .27], [.075, .27]]);
+for (let x = -.21; x <= .22; x += .085) { SK.teeth.moveTo(x, .37); SK.teeth.lineTo(x, .5); }
+SK.teeth.moveTo(-.25, .43); SK.teeth.lineTo(.25, .43);
+
+const GH = { body: new Path2D(), face: new Path2D() };
+GH.body.moveTo(-.5, .52); GH.body.lineTo(-.5, -.08); GH.body.arc(0, -.08, .5, Math.PI, 0); GH.body.lineTo(.5, .52);
+[[.375, .7, .25], [.125, .62, 0], [-.125, .7, -.25], [-.375, .62, -.5]].forEach(([cx, cy, x]) => GH.body.quadraticCurveTo(cx, cy, x, .52));
+GH.body.closePath();
+ellipsePath(GH.face, -.17, -.12, .075, .115); ellipsePath(GH.face, .17, -.12, .075, .115); ellipsePath(GH.face, 0, .14, .08, .11);
+
+const JR = { glass: new Path2D(), lid: new Path2D() };
+rrect(JR.glass, -.5, -1.22, 1, 1.22, .2); JR.glass.rect(-.38, -1.34, .76, .14);
+rrect(JR.lid, -.44, -1.52, .88, .2, .05);
+
+/* ---- light helpers ---- */
+const lum = c => Math.max(c[0], c[1], c[2]);
+const rgba = (c, a, k = 1) => `rgba(${Math.min(255, Math.round(c[0] * 255 * k))},${Math.min(255, Math.round(c[1] * 255 * k))},${Math.min(255, Math.round(c[2] * 255 * k))},${a})`;
+function halo(x, y, r, col, strength) {
+  if (lum(col) < .004) return;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, rgba(col, strength)); g.addColorStop(.35, rgba(col, strength * .35)); g.addColorStop(1, rgba(col, 0));
+  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+}
+function glowFill(path, col, cx, cy, r, k = 1) {
+  if (lum(col) < .004) return;
+  ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  g.addColorStop(0, rgba(col, 1, k)); g.addColorStop(.55, rgba(col, 1, .55 * k)); g.addColorStop(1, rgba(col, 1, .18 * k));
+  ctx.fillStyle = g; ctx.fill(path);
+  ctx.globalCompositeOperation = 'source-over';
+}
+const hot = col => { const l = lum(col); return mix(col, [1, .92, .7], .3 * l).map(v => v * 1.35); };
+function holes(path, col) {
+  ctx.fillStyle = '#0a0506'; ctx.fill(path);
+  if (lum(col) < .004) return;
+  ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = rgba(hot(col), 1); ctx.fill(path); ctx.globalCompositeOperation = 'source-over';
+}
+
+function propPos(p, i, time) {
+  if (p.hang) {
+    const bob = REDUCED ? 0 : Math.sin(time * 1.1 + i * 2.3) * 4;
+    return { x: p.hang[0], y: p.hang[1] + p.str + .58 * p.s + bob, anchor: p.hang, top: p.hang[1] + p.str + bob };
+  }
+  if (p.type === 'pumpkin') return { x: p.x, y: p.y - .72 * p.s };
+  if (p.type === 'skull') return { x: p.x, y: p.y - .55 * p.s };
+  return { x: p.x, y: p.y };
+}
+
+function drawProp(p, pos, col) {
+  const s = p.s;
+  if (p.hang) {
+    ctx.strokeStyle = 'rgba(160,150,180,.35)'; ctx.lineWidth = .8;
+    ctx.beginPath(); ctx.moveTo(p.hang[0], p.hang[1]); ctx.lineTo(pos.x, pos.top); ctx.stroke();
+  }
+  ctx.save(); ctx.translate(pos.x, pos.y); ctx.scale(s, s);
+  if (p.type === 'pumpkin') {
+    ctx.fillStyle = '#2c180e'; ctx.fill(PK.body);
+    glowFill(PK.body, col, 0, .12, 1.05);
+    ctx.strokeStyle = 'rgba(0,0,0,.38)'; ctx.lineWidth = .035;
+    PK_LOBES.slice(1).forEach(l => { ctx.beginPath(); ctx.ellipse(l[0], l[1], l[2], l[3], 0, 0, TAU); ctx.stroke(); });
+    holes(PK.face, col);
+    ctx.fillStyle = '#1b2210'; ctx.fill(PK.stem);
+  } else if (p.type === 'skull') {
+    ctx.fillStyle = '#39353f'; ctx.fill(SK.body);
+    glowFill(SK.body, col, 0, -.08, .85, .95);
+    holes(SK.holes, col);
+    ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = .028; ctx.stroke(SK.teeth);
+  } else if (p.type === 'ghost') {
+    ctx.globalAlpha = .9;
+    ctx.fillStyle = '#323748'; ctx.fill(GH.body);
+    glowFill(GH.body, col, 0, -.05, .9, .9);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#07060b'; ctx.fill(GH.face);
+  } else if (p.type === 'bulb') {
+    ctx.fillStyle = '#16131b'; ctx.fillRect(-.45, -1.25, .9, .55);
+    const b = new Path2D(); ellipsePath(b, 0, 0, .78, .9);
+    ctx.fillStyle = 'rgba(70,64,84,.75)'; ctx.fill(b);
+    glowFill(b, col, -.1, -.1, .95, 1.1);
+  }
+  ctx.restore();
+}
+
+function drawJar(col) {
+  const { x, y, s } = JAR;
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  ctx.fillStyle = 'rgba(140,160,200,.07)'; ctx.fill(JR.glass);
+  ctx.fillStyle = '#1f1d25'; ctx.fillRect(-.3, -.62, .6, .42);           // the NanoC6, sitting in the jar
+  ctx.fillStyle = '#d8d0bf'; ctx.fillRect(-.24, -.56, .18, .08);         // its Grove port
+  glowFill(JR.glass, col, .12, -.48, 1.1, .7);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = rgba(hot(col), 1); ctx.beginPath(); ctx.arc(.12, -.48, .07, 0, TAU); ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = 'rgba(190,200,235,.32)'; ctx.lineWidth = .045; ctx.stroke(JR.glass);
+  ctx.fillStyle = '#3a3343'; ctx.fill(JR.lid);
+  ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fillRect(-.38, -1.1, .07, .85);
+  ctx.restore();
+}
+
+const BLACK = [0, 0, 0];
+let fogT = 0;
+function drawScene(time) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(bg, 0, 0);
+  ctx.setTransform(K, 0, 0, K, 0, 0);
+
+  const cols = PROPS.map((p, i) => i < S.physical ? OUT.chain[i] : BLACK);
+  const jarCol = OUT.onboard;
+  const poses = PROPS.map((p, i) => propPos(p, i, time));
+
+  // whole-scene wash: a lightning strike lights up the yard
+  const wash = [0, 0, 0];
+  cols.forEach((c, i) => { const w = PROPS[i].type === 'bulb' ? .35 : 1; wash[0] += c[0] * w; wash[1] += c[1] * w; wash[2] += c[2] * w; });
+  wash.forEach((v, i) => wash[i] = (v + jarCol[i] * .5) / 9);
+  ctx.globalCompositeOperation = 'lighter';
+  if (lum(wash) > .01) { ctx.fillStyle = rgba(wash.map(v => Math.min(1, v)), REDUCED ? .1 : .2); ctx.fillRect(0, 0, W, H); }
+
+  // halos and pools of light on the ground
+  PROPS.forEach((p, i) => {
+    const c = cols[i], pos = poses[i];
+    if (p.type === 'bulb') { halo(pos.x, pos.y, 34, c, .42); return; }
+    halo(pos.x, pos.y, p.s * 2.7, c, .5);
+    if (!p.hang) {
+      ctx.save(); ctx.translate(p.x, p.y); ctx.scale(1, .26);
+      halo(0, 0, p.s * 1.9, c, .55); ctx.restore();
+    }
+  });
+  halo(JAR.x + 4, JAR.y - 15, 60, jarCol, .5);
+  ctx.save(); ctx.translate(JAR.x, JAR.y); ctx.scale(1, .26); halo(0, 0, 50, jarCol, .5); ctx.restore();
+  ctx.globalCompositeOperation = 'source-over';
+
+  // string lights wire
+  ctx.strokeStyle = '#0b0a10'; ctx.lineWidth = 1.6; ctx.beginPath();
+  for (let t = 0; t <= 1.0001; t += .02) { const p = garlandAt(t); t === 0 ? ctx.moveTo(p[0], p[1]) : ctx.lineTo(p[0], p[1]); }
+  ctx.stroke();
+
+  PROPS.forEach((p, i) => drawProp(p, poses[i], cols[i]));
+  drawJar(jarCol);
+
+  // drifting fog, faintly tinted by whatever is lit
+  if (!REDUCED) fogT = time;
+  for (let f = 0; f < 6; f++) {
+    const x = ((f * 230 + fogT * (10 + f * 3)) % 1300) - 170, y = 470 + (f % 3) * 22;
+    ctx.save(); ctx.translate(x, y); ctx.scale(1, .22);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 200);
+    const tint = mix([.55, .5, .7], wash.map(v => Math.min(1, v * 3)), .5);
+    g.addColorStop(0, rgba(tint, .09)); g.addColorStop(1, rgba(tint, 0));
+    ctx.fillStyle = g; ctx.fillRect(-200, -200, 400, 400); ctx.restore();
+  }
+  // vignette
+  const v = ctx.createRadialGradient(W / 2, H * .55, H * .35, W / 2, H * .55, W * .72);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.55)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+
+  // pixel numbers (virtual pixel index, as the Spotlight slider counts them)
+  const showNums = $('#chk-nums').checked;
+  if (showNums || S.spotlight > 0) {
+    const tags = [];
+    let vi = 1;
+    if (OUT.onboardUsed) tags.push([JAR.x, JAR.y - 58, vi++]);
+    if (S.output !== 1) for (let i = 0; i < OUT.chainCount; i++) {
+      const p = PROPS[i]; if (!p || i >= S.physical) { vi++; continue; }
+      const pos = poses[i];
+      const yTop = p.type === 'bulb' ? pos.y + 16 : p.hang ? pos.y + p.s * .55 + 14 : pos.y - p.s * (p.type === 'pumpkin' ? 1.1 : .9);
+      tags.push([pos.x, yTop, vi++]);
+    }
+    ctx.font = '600 11px "JetBrains Mono", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    tags.forEach(([x, y, n]) => {
+      const spot = n === S.spotlight;
+      if (!showNums && !spot) return;
+      ctx.fillStyle = spot ? '#ff8f3a' : 'rgba(10,8,18,.8)';
+      ctx.beginPath(); ctx.arc(x, y, spot ? 11 : 9, 0, TAU); ctx.fill();
+      ctx.strokeStyle = spot ? '#fff' : 'rgba(255,255,255,.35)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = spot ? '#1b0e05' : '#eee'; ctx.fillText(String(n), x, y + .5);
+    });
+  }
+}
+
+/* ---------- caption ---------- */
+let lastCap = '';
+function updateCaption(force) {
+  let fxName = EFFECTS[S.effect], logLine = `speed ${S.speed} · ${OUT.n ?? 0} pixel${OUT.n === 1 ? '' : 's'}`;
+  if (S.effect === FX_DEMO && demoActive) {
+    const seg = SCRIPT[demo.seg];
+    fxName = seg.name;
+    logLine = `[demo] ${demo.seg + 1}/${SCRIPT.length} ${seg.name}`;
+  }
+  if (!S.on) { fxName = 'Off'; }
+  if (scare) { fxName = 'Jump scare!'; }
+  const cap = fxName + '|' + logLine;
+  if (!force && cap === lastCap) return;
+  lastCap = cap;
+  $('#cap-fx').textContent = fxName; $('#cap-log').textContent = logLine;
+}
+
+/* ======================================================================
+   Guided tour
+   ====================================================================== */
+const STEPS = [
+  { t: 'Meet the porch', b: 'Every prop hides one <b>Grove Chainable RGB LED</b>, daisy-chained left to right and back along the string lights. The jar on the wall holds the <b>NanoC6</b> itself, with its onboard LED. Six modules are plugged in, so six props are lit.', el: '#stage' },
+  { t: 'Switch the light', b: 'Turn <b>Haunted light</b> off and back on with its toggle. The firmware fades over 0.45 s instead of snapping.', el: '#row-light', ok: () => flags.toggledOn },
+  { t: 'Pick an effect', b: 'Open the <b>Effect</b> list and choose <b>Lightning Storm</b>. Strikes stutter one to four times and spill onto neighbouring props.', el: '#row-effect', ok: () => S.effect === FX_LIGHTNING },
+  { t: 'Change the colour', b: 'Click the name <b>Haunted light</b> to open its dialog and pick a colour. Solid, Candle, Ghost Breath, Lightning, Heart, Chase and Poltergeist all use it as their base. Try <b>Haunted Chase</b> in green while you are there.', el: '#row-light', ok: () => flags.colour },
+  { t: 'Speed it up', b: 'Drag <b>Effect speed</b>. 50 is normal; every 25 steps doubles or halves the pace, so 100 is four times faster.', el: '#row-speed', ok: () => S.speed !== 50 },
+  { t: 'Plug in a module', b: 'Press <b>Plug in a module</b>. The firmware probes the chain every 1.5 s and needs the same count twice, so the new prop wakes within about three seconds, shimmering pale blue. The <b>Chain change</b> event fires and the YAML panel shows how to trigger on it.', el: '#bench', ok: () => flags.added && S.detected >= 7 },
+  { t: 'Pull one out', b: 'Click any module on the bench to unplug it. Everything after it goes dark too, because the data stops at the gap, and <b>led_removed</b> fires.', el: '#chain', ok: () => flags.removed },
+  { t: 'Spotlight a pixel', b: 'Drag <b>Spotlight pixel</b>. That one pixel holds the light colour while the rest keep haunting. Its maximum follows the live pixel count, and it switches off if the string gets shorter than it.', el: '#row-spot', ok: () => S.spotlight > 0 },
+  { t: 'Route the output', b: 'Change <b>Output</b> to <b>Onboard + Grove chain</b>. The jar joins the string as pixel 1. Turn on <b>Pixel numbers</b> on the scene to see the numbering shift.', el: '#row-output', ok: () => S.output === 3 },
+  { t: 'Jump scare', b: 'Press <b>Jump scare</b>: 8 seconds of full-brightness Lightning Storm, then everything goes back the way it was. At home you would trigger it from a doorbell.', el: '#row-scare', ok: () => flags.scared },
+  { t: 'Roll the Demo Reel', b: 'Choose <b>Demo Reel</b> from the Effect list, or press <b>Full-screen show</b>. It is an 82-second scripted tour made for filming, and every loop is identical, so take two matches take one. Then <a href="https://github.com/rightiswrong/m5nanoc6-zigbee-lighting-control#quick-start" target="_blank" rel="noopener">build your own</a>.', el: '#row-effect', ok: () => S.effect === FX_DEMO },
+];
+let stepI = 0, tourOn = !KIOSK;
+const dotsEl = $('#tour-dots');
+dotsEl.innerHTML = STEPS.map(() => '<i></i>').join('');
+function clearTarget() { document.querySelectorAll('.tour-target').forEach(e => e.classList.remove('tour-target')); }
+function showStep(scroll) {
+  clearTarget();
+  const st = STEPS[stepI];
+  $('#tour-count').textContent = `Step ${stepI + 1} of ${STEPS.length}`;
+  $('#tour-title').textContent = st.t; $('#tour-body').innerHTML = st.b;
+  $('#tour-back').disabled = stepI === 0;
+  $('#tour-next').textContent = stepI === STEPS.length - 1 ? 'Finish' : 'Next';
+  if (tourOn && st.el) {
+    const el = $(st.el); el.classList.add('tour-target');
+    if (scroll) {
+      const r = el.getBoundingClientRect();
+      const off = matchMedia('(max-width:940px)').matches && el.id !== 'stage' ? $('#stage').getBoundingClientRect().bottom : 60;
+      if (r.top < off || r.bottom > innerHeight) el.scrollIntoView({ block: 'nearest', behavior: REDUCED ? 'auto' : 'smooth' });
+    }
+  }
+  tourCheck();
+}
+function tourCheck() {
+  if (!tourOn) return;
+  const ok = !STEPS[stepI].ok || STEPS[stepI].ok();
+  $('#tour-check').hidden = !(STEPS[stepI].ok && ok);
+  [...dotsEl.children].forEach((d, i) => { d.className = i === stepI ? 'on' : (STEPS[i].ok && STEPS[i].ok() ? 'done' : ''); });
+}
+$('#tour-next').addEventListener('click', () => { if (stepI < STEPS.length - 1) { stepI++; showStep(true); } else hideTour(); });
+$('#tour-back').addEventListener('click', () => { if (stepI > 0) { stepI--; showStep(true); } });
+function hideTour() { tourOn = false; clearTarget(); $('#tour').hidden = true; $('#tour-closed').hidden = false; }
+$('#tour-hide').addEventListener('click', hideTour);
+$('#tour-show').addEventListener('click', () => { tourOn = true; $('#tour').hidden = false; $('#tour-closed').hidden = true; showStep(true); });
+
+/* ---------- full-screen show ---------- */
+function setKiosk(on) {
+  document.documentElement.classList.toggle('kiosk', on);
+  if (on) {
+    if (S.effect !== FX_DEMO) { kioskPrev = S.effect; S.effect = FX_DEMO; }
+    if (S.physical < 12) { kioskPhys = [S.physical, S.detected]; S.physical = S.detected = 12; }
+    S.on = true; buildChain();
+    const el = document.documentElement;
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+  } else {
+    if (kioskPrev != null) { S.effect = kioskPrev; kioskPrev = null; }
+    if (kioskPhys) { [S.physical, S.detected] = kioskPhys; kioskPhys = null; buildChain(); }
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  }
+  $('#btn-show').textContent = on ? 'Exit' : 'Full screen';
+  sync(); requestAnimationFrame(resize);
+}
+let kioskPrev = null, kioskPhys = null;
+$('#btn-show').addEventListener('click', () => setKiosk(!document.documentElement.classList.contains('kiosk')));
+$('#btn-show2').addEventListener('click', () => setKiosk(true));
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && document.documentElement.classList.contains('kiosk') && !KIOSK) setKiosk(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.documentElement.classList.contains('kiosk') && mi.hidden) setKiosk(false); });
+
+/* $('#btn-copy') */
+$('#btn-copy').addEventListener('click', () => {
+  const text = $('#yaml').textContent, btn = $('#btn-copy');
+  const done = () => { btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1400); };
+  const fallback = () => { const r = document.createRange(); r.selectNodeContents($('#yaml')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = 'Press Ctrl+C'; setTimeout(() => btn.textContent = 'Copy', 2000); };
+  try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+});
+
+/* ======================================================================
+   Boot
+   ====================================================================== */
+log('Chain change fired <em>led_added</em> (5 → 6)', 4 * 60000);
+log('Haunted light changed to <em>Candle Flicker</em> triggered by automation Halloween evening', 3 * 60000);
+log('Haunted light turned on triggered by action light.turn_on', 3 * 60000 - 1);
+setYaml('Do it from an automation', `# Dusk: candles. (The example from the README.)\n- alias: Halloween evening\n  triggers:\n    - trigger: sun\n      event: sunset\n  actions:\n    - action: light.turn_on\n      target:\n        entity_id: ${E.light}\n      data:\n        effect: Candle Flicker\n        rgb_color: [255, 90, 0]\n        brightness: 200`);
+buildChain();
+if (KIOSK) setKiosk(true);
+resize(); new ResizeObserver(resize).observe(cv);
+frame(16); sync(); showStep(false);
+if (!tourOn) { $('#tour').hidden = true; $('#tour-closed').hidden = false; }
+setInterval(renderLog, 1000);
+
+let last = performance.now(), benchAcc = 0, start = last;
+function loop(now) {
+  const dt = Math.min(100, now - last); last = now;
+  probeTick(dt);
+  frame(dt);
+  drawScene((now - start) / 1000);
+  // live LEDs on the bench
+  const ob = OUT.onboard;
+  const obEl = $('#onboard-led'); obEl.style.background = rgbCss(ob, 255); obEl.style.boxShadow = lum(ob) > .02 ? `0 0 10px ${rgbCss(ob, 255)}` : 'none';
+  dotEls.forEach((m, i) => {
+    const c = OUT.chain[i], d = m.firstChild, lit = lum(c) > .02;
+    d.style.background = lit ? rgbCss(c, 255) : '#0a0a0c';
+    d.style.boxShadow = lit ? `0 0 12px ${rgbCss(c, 255)}` : 'none';
+    m.classList.toggle('pending', i >= OUT.chainCount);
+  });
+  benchAcc += dt;
+  if (benchAcc > 250) { benchAcc = 0; updateBench(); }
+  if (S.effect === FX_DEMO && demo.changed) { demo.changed = false; updateCaption(true); } else updateCaption(false);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+
+</body>
+</html>
