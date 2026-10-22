@@ -42,7 +42,8 @@ jobs:
           set -o pipefail
           if ! SPOOKY_THROWAWAY_KEY=1 hardened/build.sh ${{ matrix.board }} ${{ matrix.stack }} 2>&1 | tee build.log; then
             # Surface the end of the log as an annotation (readable from the API / PR view).
-            msg=$(grep -v '^\s*$' build.log | tail -n 60 | cut -c1-240 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            { grep -E -m 12 -A3 '(error|Error|FAILED|undefined reference|build.sh:)' build.log; echo '----- tail -----'; tail -n 12 build.log; } > summary.txt || true
+            msg=$(cut -c1-300 summary.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
             echo "::error title=hardened build failed::${msg}"
             exit 1
           fi
