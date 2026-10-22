@@ -34,13 +34,16 @@ public:
   }
 
   void load();                    // from NVS (namespace "spooky")
-  void saveIfQuiet(uint32_t now); // debounced NVS write
+  void saveIfQuiet(uint32_t now); // debounced, rate-limited NVS write
+  uint32_t saveCount() const { return _saves; }
 
 private:
   portMUX_TYPE _mux = portMUX_INITIALIZER_UNLOCKED;
   ShowState _s;
   volatile uint32_t _lastChange = 0;
   volatile bool _dirty = false;
+  bool _savedOnce = false;
+  uint32_t _lastSave = 0, _saves = 0;
 };
 
 extern ShowStore g_show;

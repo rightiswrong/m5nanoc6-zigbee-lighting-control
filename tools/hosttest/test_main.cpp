@@ -144,6 +144,26 @@ static void testEffects() {
       }
 }
 
+static void testSaveRateLimit() {
+  printf("[nvs] an automation changing settings every 6 s → at most one flash save a minute, last change kept\n");
+  ShowStore st;
+  sim.nowMs = 50000000;
+  const uint32_t start = sim.nowMs, minutes = 10;
+  uint8_t fx = 0;
+  while (sim.nowMs - start < minutes * 60000u) {
+    if ((sim.nowMs - start) % 6000 == 0) {
+      fx = (uint8_t)((fx + 1) % FX_COUNT);
+      st.edit([&](ShowState &x) { x.effect = fx; });
+    }
+    st.saveIfQuiet(sim.nowMs);
+    sim.nowMs += 100;
+  }
+  // 6 s between changes > the 5 s quiet time, so without the limit this would save ~100 times.
+  CHECK(st.saveCount() <= minutes + 1, "%u saves in %u minutes", st.saveCount(), minutes);
+  for (int i = 0; i < 700; ++i, sim.nowMs += 100) st.saveIfQuiet(sim.nowMs);
+  CHECK(Preferences::kv()["fx"] == fx, "the final setting (%u) wasn't saved (NVS has %d)", fx, Preferences::kv()["fx"]);
+}
+
 static void testPowerLimiter() {
   printf("[power] full-white 24-module chain stays within %d mA budget\n", POWER_BUDGET_MA);
   Renderer r;
@@ -284,6 +304,17 @@ static void testMatterCodes() {
     badGen += !mcodes::passcodeValid(p) || dsc > 0xFFF;
   }
   CHECK(badGen == 0, "%d generated setup codes invalid", badGen);
+  {   // rejection sampling: a source stuck in the biased top range must be skipped
+    static uint32_t seq[] = {UINT32_MAX, UINT32_MAX - 3, 41};
+    static int i = 0;
+    i = 0;
+    uint32_t v = mcodes::uniformBelow([]() { return seq[i++]; }, 99999998u);
+    CHECK(v == 41 && i == 3, "uniformBelow should reject the top partial range (got %u after %d draws)", v, i);
+    int outOfRange = 0;
+    for (uint32_t n : {1u, 2u, 3u, 7u, 99999998u, 0x80000001u})
+      for (int k = 0; k < 2000; ++k) outOfRange += mcodes::uniformBelow(esp_random, n) >= n;
+    CHECK(outOfRange == 0, "%d uniformBelow results out of range", outOfRange);
+  }
 
   int bandErr = 0;
   for (int v = 0; v <= mcodes::BAND_MAX_VALUE; ++v) {
@@ -397,7 +428,7 @@ static void testEndToEnd(const char *) {
   CHECK(zbLightEp->state, "light-on from the button not published");
 
   printf("[e2e/zigbee] settings persist to NVS after the quiet period\n");
-  runLoopMs(SETTINGS_SAVE_DELAY_MS + 100);
+  runLoopMs(SETTINGS_SAVE_MIN_INTERVAL_MS + 100);
   CHECK(Preferences::kv()["fx"] == g_show.get().effect, "NVS effect not saved");
 
   printf("[e2e/zigbee] hold 5 s → factory reset\n");
@@ -449,6 +480,9 @@ static void testEndToEnd(const char *qrOut) {
   CHECK(mcodes::passcodeValid(M.passcode) && M.passcode != 20202021u && M.discriminator <= 0xFFF, "setup code %u / %u",
         M.passcode, M.discriminator);
   CHECK(Preferences::big()["pin"] == M.passcode && Preferences::big()["disc"] == M.discriminator, "setup code not persisted");
+  CHECK(g_rngWithEntropy >= 2 && g_bootRandomOn == 0, "setup code must be drawn with the entropy source on, then off again "
+        "(%d draws, depth %d)", g_rngWithEntropy, g_bootRandomOn);
+  CHECK(log.find("(hardware entropy)") != std::string::npos, "entropy source not used/logged");
   CHECK(effectShown() == g_show.get().effect, "initial effect %d published as %d", g_show.get().effect, effectShown());
   auto *count = static_cast<MatterLightSensor *>(ep(MEP_COUNT));
   CHECK(count->haLux() == 4.0, "HA should show 3 LEDs as 4.0 lx, shows %.1f", count->haLux());
@@ -575,12 +609,15 @@ static void testEndToEnd(const char *qrOut) {
   lightEp->identifyFromController(true);
   CHECK((int32_t)(g_identifyUntil - millis()) > 0, "identify ignored");
   lightEp->identifyFromController(false);
-  runLoopMs(SETTINGS_SAVE_DELAY_MS + 100);
+  runLoopMs(SETTINGS_SAVE_MIN_INTERVAL_MS + 100);
   CHECK(Preferences::kv()["fx"] == g_show.get().effect && Preferences::kv()["spd"] == 80, "settings not saved");
   sim.buttonLevel = LOW; runLoopMs(BUTTON_FACTORY_RESET_MS + 200); sim.buttonLevel = HIGH;
   runLoopMs(60);
   CHECK(M.decommissions == 1 && ESP.restarts == 1, "long hold should decommission (%d) and restart (%d)", M.decommissions,
         ESP.restarts);
+  const bool codeKept = Preferences::big().count("pin") && Preferences::big()["pin"] == M.passcode;
+  CHECK(codeKept == !MATTER_NEW_CODE_ON_DECOMMISSION, "MATTER_NEW_CODE_ON_DECOMMISSION=%d but the code was %s",
+        MATTER_NEW_CODE_ON_DECOMMISSION, codeKept ? "kept" : "discarded");
   Serial.log = nullptr;
 }
 #endif
@@ -617,6 +654,7 @@ int main(int argc, char **argv) {
     testDemo();
     testMatterCodes();
     testPowerLimiter();
+    testSaveRateLimit();
     testEndToEnd(argc > 2 ? argv[2] : nullptr);
   }
   printf("\n%d checks passed, %d failed\n", g_pass, g_fail);

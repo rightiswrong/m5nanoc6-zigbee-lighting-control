@@ -175,8 +175,9 @@ until it's paired:
 ```
 
 In the Companion app: **Settings → Devices & services → Add device → Add Matter
-device**, then scan it straight off the screen. Or make a sticker to keep on the
-device:
+device**, then scan it straight off the screen. Or print a label and keep it
+**indoors** with your notes. The code works like a key, so don't stick it on an
+outdoor light, and blank it out of any log you post:
 
 ```bash
 python3 tools/matter_label.py --log serial.txt --name "Porch pumpkin"   # → spooky-label.svg

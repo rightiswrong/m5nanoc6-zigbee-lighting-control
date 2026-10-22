@@ -1,0 +1,35 @@
+name: Bug report
+description: Something doesn't work (pairing, effects, Grove detection, the HA integration)
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before pasting a serial log:** blank out the pairing QR code, the
+        `Manual pairing code`, the `QR payload` and the `qrcode.html?data=…` link.
+        Anyone with them can pair your light while it's unpaired.
+        Security problem? Don't open an issue — use **Security → Report a vulnerability** instead.
+  - type: dropdown
+    id: build
+    attributes:
+      label: Firmware image
+      options: [nanoc6-zigbee, nanoc6-matter (Thread), nanoc6-matter-wifi, nanoh2-zigbee, built myself]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Firmware version (first serial line, e.g. "Spooky Lights v1.1.4")
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Serial log (pairing codes removed!)
+      render: text

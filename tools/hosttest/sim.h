@@ -120,7 +120,10 @@ int digitalRead(uint8_t pin) {
   if (pin == PIN_BUTTON) return sim.buttonLevel;
   return LOW;                       // a released CI line reads low
 }
+int g_bootRandomOn = 0;            // bootloader_random_enable() depth (stubs/bootloader_random.h)
+int g_rngWithEntropy = 0;          // esp_random() calls made while it was on
 uint32_t esp_random() {             // deterministic for tests
+  if (g_bootRandomOn > 0) ++g_rngWithEntropy;
   static uint32_t x = 0x5EED1234u;
   x ^= x << 13; x ^= x >> 17; x ^= x << 5;
   return x;

@@ -24,20 +24,26 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
-permissions:
-  contents: write
+# Least privilege: nothing by default, each job asks for what it needs. Only
+# `publish` can write (create the release) and sign provenance attestations.
+permissions: {}
 
 env:
+  ESP32_CORE: "3.3.12"   # pinned; bump deliberately (CI builds and tests it first)
   SKETCH: firmware/SpookyLights
 
 jobs:
   plan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       tag: ${{ steps.decide.outputs.tag }}
       publish: ${{ steps.decide.outputs.publish }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - name: Decide tag and whether to publish
         id: decide
         run: |
@@ -61,12 +67,16 @@ jobs:
 
   tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-      - run: git clone --depth 1 https://github.com/cozmo/jsQR "$RUNNER_TEMP/jsQR"
+      - run: git init -q "$RUNNER_TEMP/jsQR" && git -C "$RUNNER_TEMP/jsQR" fetch -q --depth 1 https://github.com/cozmo/jsQR 8e6a036beafa7053dd44b1b76ac578d22b1b3311 && git -C "$RUNNER_TEMP/jsQR" checkout -q FETCH_HEAD
       - name: Firmware host tests (all variants)
         run: tools/hosttest/run.sh
         env:
@@ -78,6 +88,8 @@ jobs:
     needs: [plan, tests]
     name: Build ${{ matrix.board }}-${{ matrix.stack }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: true
       matrix:
@@ -87,14 +99,16 @@ jobs:
           - { board: nanoc6, chip: esp32c6, stack: matter-wifi, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app", defines: "-DMATTER_USE_WIFI=1" }
           - { board: nanoh2, chip: esp32h2, stack: zigbee, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
     steps:
-      - uses: actions/checkout@v5
-      - uses: arduino/setup-arduino-cli@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: arduino/setup-arduino-cli@81d310742121c928ea9c8bbd407b4217b432ae02 # v2
       - name: Install the Espressif ESP32 core
         run: |
           arduino-cli config init --overwrite
           arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core update-index
-          arduino-cli core install esp32:esp32
+          arduino-cli core install "esp32:esp32@$ESP32_CORE"
           arduino-cli core list | tee "core-version.txt"
       - name: Compile
         run: |
@@ -114,14 +128,16 @@ jobs:
           if [ -f "$b.merged.bin" ]; then
             cp "$b.merged.bin" "dist/$n-factory.bin"
           else
-            pip install --quiet esptool
+            # esptool from the pinned core, not an unpinned pip download
+            esptool=$(find ~/.arduino15/packages/esp32/tools/esptool_py -type f -name esptool | head -n1)
+            test -x "$esptool" || { echo "::error::esptool not found in the core"; exit 1; }
             boot_app0=$(find ~/.arduino15/packages/esp32/hardware -name boot_app0.bin | head -n1)
-            python3 -m esptool --chip ${{ matrix.chip }} merge_bin -o "dist/$n-factory.bin" \
+            "$esptool" --chip ${{ matrix.chip }} merge-bin -o "dist/$n-factory.bin" \
               0x0 "$b.bootloader.bin" 0x8000 "$b.partitions.bin" 0xe000 "$boot_app0" 0x10000 "$b.bin"
           fi
           cp core-version.txt "dist/$n-core.txt"
           ls -la dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fw-${{ matrix.board }}-${{ matrix.stack }}
           path: dist/
@@ -129,9 +145,15 @@ jobs:
   publish:
     needs: [plan, firmware]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write        # create the release
+      id-token: write        # sign build-provenance attestations (Sigstore)
+      attestations: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: fw
           merge-multiple: true
@@ -168,19 +190,33 @@ jobs:
             echo "Assistant app: **Settings → Devices → Add device → Add Matter device**. Needs a Thread border"
             echo "router (or use the Matter-over-Wi-Fi build, which needs only 2.4 GHz Wi-Fi) — see [docs/MATTER.md](https://github.com/${{ github.repository }}/blob/$v/docs/MATTER.md)."
             echo
+            echo "## Verify a download"
+            echo
+            echo "Every file carries a signed build-provenance attestation, which proves it was built by this"
+            echo "repository's release workflow from commit \`${{ github.sha }}\`. With the GitHub CLI:"
+            echo
+            echo '```'
+            echo "gh attestation verify spooky-nanoc6-matter-$v-factory.bin --repo ${{ github.repository }}"
+            echo '```'
+            echo
             echo "## Build"
             echo
             echo '```'
             echo "$core"
             echo '```'
           } > release-notes.md
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: spooky-lights-${{ needs.plan.outputs.tag }}
           path: dist/
+      - name: Attest build provenance (verify with `gh attestation verify <file> --repo <owner/repo>`)
+        if: needs.plan.outputs.publish == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-path: dist/*
       - name: Publish GitHub release
         if: needs.plan.outputs.publish == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ needs.plan.outputs.tag }}
           target_commitish: ${{ github.sha }}

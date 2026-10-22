@@ -11,9 +11,20 @@ bool passcodeValid(uint32_t p) {
   return true;
 }
 
+uint32_t uniformBelow(uint32_t (*rnd)(), uint32_t n) {
+  // Rejection sampling: drop the top partial copy of [0, n) so every value is
+  // equally likely (plain rnd() % n favours small values slightly).
+  const uint32_t limit = UINT32_MAX - (UINT32_MAX % n);   // a multiple of n
+  uint32_t x;
+  do {
+    x = rnd();
+  } while (x >= limit);
+  return x % n;
+}
+
 void generateSetup(uint32_t (*rnd)(), uint32_t &passcode, uint16_t &discriminator) {
   do {
-    passcode = 1u + rnd() % 99999998u;
+    passcode = 1u + uniformBelow(rnd, 99999998u);           // 1 … 99999998
   } while (!passcodeValid(passcode));
   discriminator = (uint16_t)(rnd() & 0x0FFFu);
 }

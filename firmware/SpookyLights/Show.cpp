@@ -32,7 +32,11 @@ void ShowStore::load() {
 
 void ShowStore::saveIfQuiet(uint32_t now) {
   if (!_dirty || now - _lastChange < SETTINGS_SAVE_DELAY_MS) return;
+  if (_savedOnce && now - _lastSave < SETTINGS_SAVE_MIN_INTERVAL_MS) return;   // stays dirty, saved later
   _dirty = false;
+  _savedOnce = true;
+  _lastSave = now;
+  ++_saves;
   ShowState s = get();
   Preferences prefs;
   prefs.begin("spooky", false);

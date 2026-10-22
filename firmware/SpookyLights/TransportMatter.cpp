@@ -29,6 +29,12 @@
 #include <atomic>
 #include <Preferences.h>
 #include <esp_random.h>
+#if __has_include(<bootloader_random.h>)
+#include <bootloader_random.h>
+#define SPOOKY_BOOT_ENTROPY 1
+#else
+#define SPOOKY_BOOT_ENTROPY 0
+#endif
 #include "Effects.h"
 #include "MatterCodes.h"
 #include "Show.h"
@@ -198,12 +204,35 @@ void loadOrCreateSetupCodes() {
   g_passcode = p.getUInt("pin", 0);
   g_discriminator = p.getUShort("disc", 0xFFFF);
   if (!mcodes::passcodeValid(g_passcode) || g_discriminator > 0x0FFF) {
+    // The radio isn't running yet, so on its own esp_random() would only be
+    // pseudo-random here (ESP-IDF "Random Number Generation"). Switch on the
+    // SAR-ADC entropy source the bootloader uses, for just these few calls.
+#if SPOOKY_BOOT_ENTROPY
+    bootloader_random_enable();
+#endif
     mcodes::generateSetup(hwRandom, g_passcode, g_discriminator);
+#if SPOOKY_BOOT_ENTROPY
+    bootloader_random_disable();   // must be off before the radio / ADC start
+#endif
     p.putUInt("pin", g_passcode);
     p.putUShort("disc", g_discriminator);
-    Serial.println("[matter] generated this device's own setup code");
+    Serial.println(SPOOKY_BOOT_ENTROPY ? "[matter] generated this device's own setup code (hardware entropy)"
+                                       : "[matter] generated this device's own setup code (WARNING: no entropy source)");
   }
   p.end();
+}
+
+// MATTER_NEW_CODE_ON_DECOMMISSION: forget the code so the next boot makes a new
+// one. (Matter's own factory reset erases only its own storage, not this.)
+void forgetSetupCodesIfConfigured() {
+#if MATTER_NEW_CODE_ON_DECOMMISSION
+  Preferences p;
+  p.begin("spooky_mt", false);
+  p.remove("pin");
+  p.remove("disc");
+  p.end();
+  Serial.println("[matter] pairing code discarded — a new one is made at the next boot (old labels stop working)");
+#endif
 }
 
 void emitQrLine(const char *line) {
@@ -340,6 +369,7 @@ public:
         // The controller removed us. Restart so the BLE commissioning window
         // reopens cleanly (what the Arduino Matter examples do).
         Serial.println("[matter] fabric removed — restarting to accept a new pairing");
+        forgetSetupCodesIfConfigured();
         delay(500);
         ESP.restart();
         return;
@@ -391,6 +421,7 @@ public:
 
   void factoryReset() override {
     Serial.println("[matter] decommissioning — the light will forget its controller");
+    forgetSetupCodesIfConfigured();
     Matter.decommission();
   }
 

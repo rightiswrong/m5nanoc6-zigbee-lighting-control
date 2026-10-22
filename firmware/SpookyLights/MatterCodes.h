@@ -15,6 +15,8 @@ bool passcodeValid(uint32_t passcode);
 // Draw a valid random passcode (1..99999998) and a 12-bit discriminator.
 // `rnd` is any 32-bit random source (esp_random on the device).
 void generateSetup(uint32_t (*rnd)(), uint32_t &passcode, uint16_t &discriminator);
+// Unbiased value in [0, n), n > 0.
+uint32_t uniformBelow(uint32_t (*rnd)(), uint32_t n);
 
 // "https://…/qrcode.html?data=MT%3AY.K90…" → "MT:Y.K90…". Returns false if the
 // URL carries no payload or it does not fit in `out`.

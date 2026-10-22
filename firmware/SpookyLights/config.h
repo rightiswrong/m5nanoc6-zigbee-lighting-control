@@ -9,7 +9,7 @@
 
 // Keep in sync with custom_components/spooky_lights/manifest.json "version"
 // (the release workflow refuses to publish if they differ from the tag).
-#define FW_VERSION "1.1.3"
+#define FW_VERSION "1.1.4"
 
 // ------------------------------------------------------------ Radio stack
 // Chosen with the Arduino IDE "Zigbee Mode" menu — no code changes needed:
@@ -109,10 +109,20 @@
 // serial monitor at boot and every MATTER_QR_REPEAT_MS until commissioned.
 #define MATTER_QR_REPEAT_MS  60000
 
+// 1 = throw the pairing code away whenever the light is decommissioned (button
+// held 5 s, or removed by its controller); a fresh one is made on the next
+// boot. A leaked code (photographed label, a log posted online) then stops
+// working, but printed labels go stale: print a new one after each reset.
+#ifndef MATTER_NEW_CODE_ON_DECOMMISSION
+#define MATTER_NEW_CODE_ON_DECOMMISSION 0
+#endif
+
 // Serial QR style: 1 = for dark-background terminals (most terminals,
 // Arduino IDE dark theme), 0 = for light-background serial monitors.
 #define MATTER_QR_DARK_TERMINAL 1
 
 // ------------------------------------------------------------------ Button
 #define BUTTON_FACTORY_RESET_MS 5000
-#define SETTINGS_SAVE_DELAY_MS  5000  // debounce NVS writes (flash wear)
+#define SETTINGS_SAVE_DELAY_MS  5000  // save once settings have been quiet this long…
+#define SETTINGS_SAVE_MIN_INTERVAL_MS 60000  // …but at most once a minute (flash wear,
+                                      // even with a chatty automation)

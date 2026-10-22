@@ -38,6 +38,7 @@ build_and_run nanoc6-zigbee-old -DZIGBEE_MODE_ZCZR
 build_and_run nanoh2-zigbee     -DZIGBEE_MODE_ZCZR -DHOST_NEW_COLOR_API -DCONFIG_IDF_TARGET_ESP32H2
 build_and_run nanoc6-matter
 build_and_run nanoc6-matter-wifi -DMATTER_USE_WIFI=1
+build_and_run nanoc6-matter-newcode -DMATTER_NEW_CODE_ON_DECOMMISSION=1
 
 echo "== NanoH2 + Matter must not compile =="
 if g++ "${flags[@]}" -DCONFIG_IDF_TARGET_ESP32H2 -fsyntax-only "$here/test_main.cpp" 2> "$out/h2-matter.err"; then

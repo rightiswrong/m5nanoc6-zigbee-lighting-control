@@ -68,16 +68,28 @@ prints:
   QR code in a browser: https://project-chip.github.io/connectedhomeip/qrcode.html?data=MT%3A6FCJ1MBW17KGJG03P10
 ```
 
-**Every light has its own code.** It's generated randomly on first boot and
-kept in flash, so it survives updates and re-pairing. Only *Erase All Flash*
-makes a new one.
+**Every light has its own code.** It's generated on first boot from the chip's
+hardware entropy source and kept in flash, so it survives updates and
+re-pairing. Only *Erase All Flash* makes a new one, unless you build with
+`MATTER_NEW_CODE_ON_DECOMMISSION 1` (see below).
+
+> 🔒 **Treat the code like a key.** Anyone who has it can take over the light
+> while it's unpaired, for example after someone holds its button for 5 s.
+> * Keep the label **indoors** (in the box, on the back of your HA notes), not
+>   on a light that sits on the porch.
+> * **Blank out the QR code and the manual code** before posting a serial log
+>   anywhere public, such as a GitHub issue or a forum.
+> * Leaked it anyway? Set `MATTER_NEW_CODE_ON_DECOMMISSION 1` in `config.h` and
+>   rebuild. Each decommission then discards the code, and the next boot makes a
+>   fresh one, so the old code stops working. Old labels stop working too: print
+>   a new one after each reset.
 
 Three ways to scan it:
 1. **Straight off the screen.** The block QR is drawn for dark-background
    terminals. If yours is light-themed and the phone won't read it, set
    `MATTER_QR_DARK_TERMINAL 0` in `config.h`, or use 2 or 3.
 2. **The browser link.** It renders a normal QR code on any screen.
-3. **A printed label** to stick on the light, its box, or inside the pumpkin:
+3. **A printed label** to keep with the light's box or your Home Assistant notes. Indoors, not on an outdoor light:
 
    ```bash
    python3 tools/matter_label.py --log serial.txt --name "Porch pumpkin"

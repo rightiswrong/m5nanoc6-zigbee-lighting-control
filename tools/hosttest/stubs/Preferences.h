@@ -15,6 +15,7 @@ public:
   size_t putUInt(const char *k, uint32_t v) { big()[k] = v; return 4; }
   uint16_t getUShort(const char *k, uint16_t d) { auto it = big().find(k); return it == big().end() ? d : (uint16_t)it->second; }
   size_t putUShort(const char *k, uint16_t v) { big()[k] = v; return 2; }
+  bool remove(const char *k) { return big().erase(k) + kv().erase(k) > 0; }
   static std::map<std::string, uint32_t> &big() { static std::map<std::string, uint32_t> m; return m; }
   static std::map<std::string, int> &kv() { static std::map<std::string, int> m; return m; }
 };

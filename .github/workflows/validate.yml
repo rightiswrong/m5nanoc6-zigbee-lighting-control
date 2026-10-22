@@ -15,7 +15,7 @@ jobs:
     name: HACS validation
     runs-on: ubuntu-latest
     steps:
-      - uses: hacs/action@main
+      - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main
         with:
           category: integration
 
@@ -23,15 +23,19 @@ jobs:
     name: Hassfest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: home-assistant/actions/hassfest@master
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: home-assistant/actions/hassfest@cd6f3635a740c84d8a14f6121a90068b8ece6bf6 # master
 
   logic-tests:
     name: Integration logic + firmware sync tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
       - run: python -m unittest discover -s tests -v
@@ -40,12 +44,14 @@ jobs:
     name: Firmware logic (host simulation, all variants)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-      - name: Fetch jsQR (independent QR decoder for the pairing-code check)
-        run: git clone --depth 1 https://github.com/cozmo/jsQR "$RUNNER_TEMP/jsQR"
+      - name: Fetch jsQR at a pinned commit (independent QR decoder for the pairing-code check)
+        run: git init -q "$RUNNER_TEMP/jsQR" && git -C "$RUNNER_TEMP/jsQR" fetch -q --depth 1 https://github.com/cozmo/jsQR 8e6a036beafa7053dd44b1b76ac578d22b1b3311 && git -C "$RUNNER_TEMP/jsQR" checkout -q FETCH_HEAD
       - run: tools/hosttest/run.sh
         env:
           JSQR: ${{ runner.temp }}/jsQR/dist/jsQR.js
@@ -63,11 +69,14 @@ jobs:
               cliflags: '["--build-property", "compiler.cpp.extra_flags=-DMATTER_USE_WIFI=1"]' }
           - { board: nanoh2, stack: zigbee, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
     steps:
-      - uses: actions/checkout@v5
-      - uses: arduino/compile-sketches@v1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: arduino/compile-sketches@d7af6619a62e765d91f0a4d65b40cf061537a15d # v1
         with:
           platforms: |
             - name: esp32:esp32
+              version: 3.3.12
               source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
           fqbn: ${{ matrix.fqbn }}
           cli-compile-flags: ${{ matrix.cliflags || '[]' }}
