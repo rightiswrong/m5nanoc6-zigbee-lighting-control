@@ -42,7 +42,7 @@ jobs:
           set -o pipefail
           if ! SPOOKY_THROWAWAY_KEY=1 hardened/build.sh ${{ matrix.board }} ${{ matrix.stack }} 2>&1 | tee build.log; then
             # Surface the end of the log as an annotation (readable from the API / PR view).
-            { grep -E -m 12 -A3 '(error|Error|FAILED|undefined reference|build.sh:)' build.log; echo '----- tail -----'; tail -n 12 build.log; } > summary.txt || true
+            { grep -E -m 12 -A4 '(error:|FAILED:|undefined reference|build.sh:|ninja: build stopped|CMake Error)' build.log; echo '----- tail -----'; tail -n 12 build.log; } > summary.txt || true
             msg=$(cut -c1-300 summary.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
             echo "::error title=hardened build failed::${msg}"
             exit 1
@@ -52,9 +52,9 @@ jobs:
           . "$IDF_PATH/export.sh" > /dev/null
           export SPOOKY_KEYS="$RUNNER_TEMP/keys" SPOOKY_YES=1
           mkdir -p "$SPOOKY_KEYS"
-          espsecure.py generate_signing_key --version 2 --scheme ecdsa256 "$SPOOKY_KEYS/secure_boot_signing_key.pem"
+          espsecure.py generate_signing_key --version 2 --scheme rsa3072 "$SPOOKY_KEYS/secure_boot_signing_key.pem"
           hardened/provision.sh --virt ${{ matrix.board }}-${{ matrix.stack }} ci-board -
-          espsecure.py generate_signing_key --version 2 --scheme ecdsa256 "$SPOOKY_KEYS/secure_boot_signing_key_backup.pem"
+          espsecure.py generate_signing_key --version 2 --scheme rsa3072 "$SPOOKY_KEYS/secure_boot_signing_key_backup.pem"
           hardened/provision.sh --virt ${{ matrix.board }}-${{ matrix.stack }} ci-board-2 -
       - name: Update dry run (host-side encryption)
         run: |

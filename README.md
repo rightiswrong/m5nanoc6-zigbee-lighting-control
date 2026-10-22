@@ -41,10 +41,12 @@ Add `#kiosk` to the URL for a full-screen Demo Reel to screen-record.
 | `custom_components/spooky_lights/` | Home Assistant integration (installed by HACS) |
 | `tools/matter_label.py` | Printable Matter pairing labels (QR + manual code) from the serial output |
 | `zigbee2mqtt/nanoc6_spooky.mjs` | Optional external converter if you use Zigbee2MQTT instead of ZHA |
-| `docs/MATTER.md` | Matter over Thread: what you need, QR pairing, labels, troubleshooting |
+| `docs/MATTER.md` | Matter over Thread or Wi-Fi: what you need, QR pairing, labels, troubleshooting |
 | `docs/WIRING.md` | Wiring, including the loopback needed for hot-plug detection |
 | `docs/demo/` | The in-browser demo (GitHub Pages): mock Home Assistant page + simulated porch |
 | `docs/PUBLISHING.md` | How to get the integration into the HACS default list |
+| `docs/HARDENING.md`, `hardened/` | Lock your own boards down: Secure Boot V2, flash encryption, NVS encryption (ESP-IDF build) |
+| `SECURITY.md` | Reporting vulnerabilities privately, verifying downloads, known limitations |
 | `tools/hosttest/` | Firmware compiled on a PC against a bit-level P9813 chain simulator and Zigbee / Matter stand-ins |
 | `tests/` | Integration logic tests + firmware ⇄ integration sync checks |
 | `.github/workflows/` | Validation on every push; `release.yml` builds all three firmware images and publishes a release whenever the version in `manifest.json` is bumped |
@@ -405,6 +407,17 @@ real ESP32-C6/H2 toolchain, and runs HACS and hassfest validation.
   page). With a loopback fitted the firmware finds the right orientation
   itself. Without one, if the string stays dark, swap `PIN_GROVE_CLK` /
   `PIN_GROVE_DATA` in `board.h`.
+
+## Security
+
+* **Releases are signed.** Each file has a build-provenance attestation, so you can check it
+  came from this repository's release workflow:
+  `gh attestation verify <file> --repo rightiswrong/m5nanoc6-zigbee-lighting-control`.
+* **Lights outdoors?** The stock images let anyone with a USB cable read your network keys
+  out of the flash. [docs/HARDENING.md](docs/HARDENING.md) locks your own boards down
+  with Secure Boot, flash encryption and NVS encryption (permanent; read it first).
+* **Pairing codes work like keys.** Keep labels indoors, and blank them out of any log you post.
+* Found a vulnerability? Report it privately, as [SECURITY.md](SECURITY.md) describes.
 
 ## Troubleshooting
 

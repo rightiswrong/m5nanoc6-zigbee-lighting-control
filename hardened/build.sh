@@ -43,7 +43,7 @@ throwaway=0
 if [[ ${SPOOKY_THROWAWAY_KEY:-0} == 1 ]]; then
   throwaway=1
   key="$(mktemp -d)/THROWAWAY_secure_boot_signing_key.pem"
-  espsecure.py generate_signing_key --version 2 --scheme ecdsa256 "$key" >/dev/null
+  espsecure.py generate_signing_key --version 2 --scheme rsa3072 "$key" >/dev/null
 fi
 [[ -f $key ]] || die "no signing key at $key (docs/HARDENING.md, step 1)"
 
@@ -65,7 +65,7 @@ idf.py "${args[@]}" build
 # A misspelt option name in a defaults file is silently ignored, so check the
 # security settings really made it into the final configuration.
 cfg="$cdir/sdkconfig"
-need=(CONFIG_SECURE_BOOT=y CONFIG_SECURE_BOOT_V2_ENABLED=y CONFIG_SECURE_SIGNED_APPS_ECDSA_V2_SCHEME=y
+need=(CONFIG_SECURE_BOOT=y CONFIG_SECURE_BOOT_V2_ENABLED=y CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
       CONFIG_SECURE_FLASH_ENC_ENABLED=y CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
       CONFIG_SECURE_ENABLE_SECURE_ROM_DL_MODE=y CONFIG_NVS_ENCRYPTION=y CONFIG_NVS_SEC_KEY_PROTECT_USING_HMAC=y
       CONFIG_NVS_SEC_HMAC_EFUSE_KEY_ID=5 CONFIG_ESP_COREDUMP_ENABLE_TO_NONE=y CONFIG_PARTITION_TABLE_OFFSET=0xC000)

@@ -5,11 +5,11 @@
 # ---------------------------------------------------------------------------
 
 # Secure Boot V2: the ROM checks the bootloader, the bootloader checks the
-# app. Only images signed with your key boot. ECDSA P-256 (short keys).
+# app. Only images signed with your key boot. RSA-3072 (RSA-PSS): supported on
+# both the ESP32-C6 and ESP32-H2, faster to verify at boot, one key for all boards.
 CONFIG_SECURE_BOOT=y
 CONFIG_SECURE_BOOT_V2_ENABLED=y
-CONFIG_SECURE_SIGNED_APPS_ECDSA_V2_SCHEME=y
-CONFIG_SECURE_BOOT_ECDSA_KEY_LEN_256_BITS=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
 CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
 # CONFIG_SECURE_BOOT_SIGNING_KEY is set by build.sh (your key lives outside the repo).
 

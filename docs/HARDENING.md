@@ -38,7 +38,7 @@ and ESP32-H2 (NanoH2).
 
 ### The three features, and why all three
 
-1. **Secure Boot V2** (ECDSA P-256). The chip's ROM checks the bootloader's signature,
+1. **Secure Boot V2** (RSA-3072). The chip's ROM checks the bootloader's signature,
    then the bootloader checks the app's. Only images signed with your private key run.
 2. **Flash encryption, Release mode.** The bootloader, partition table, app and the
    Zigbee storage partitions are encrypted with a key that's burned into the chip and
@@ -99,10 +99,10 @@ and `ENABLE_SECURITY_DOWNLOAD`.
 
 ```bash
 mkdir -p ~/.spooky-keys && chmod 700 ~/.spooky-keys
-espsecure.py generate_signing_key --version 2 --scheme ecdsa256 ~/.spooky-keys/secure_boot_signing_key.pem
+espsecure.py generate_signing_key --version 2 --scheme rsa3072 ~/.spooky-keys/secure_boot_signing_key.pem
 
 # Optional but wise: a backup signing key, so a lost or leaked primary isn't fatal.
-espsecure.py generate_signing_key --version 2 --scheme ecdsa256 ~/.spooky-keys/secure_boot_signing_key_backup.pem
+espsecure.py generate_signing_key --version 2 --scheme rsa3072 ~/.spooky-keys/secure_boot_signing_key_backup.pem
 ```
 
 The backup key must be in that folder when you provision a board, because its hash gets
