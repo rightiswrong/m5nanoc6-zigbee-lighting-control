@@ -1,7 +1,7 @@
 dependencies:
   idf: ">=5.5,<5.6"
   espressif/esp_matter:
-    version: "~1.5.0"
+    version: "1.5"   # exactly what Arduino-ESP32's own library builder uses
     require: public
   espressif/arduino-esp32:
     version: "==3.3.12"
