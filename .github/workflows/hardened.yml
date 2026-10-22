@@ -64,7 +64,7 @@ jobs:
         if: always()
         run: |
           mkdir -p review
-          cp hardened/build/${{ matrix.board }}-${{ matrix.stack }}/sdkconfig review/ 2>/dev/null || true
+          cp hardened/build/${{ matrix.board }}-${{ matrix.stack }}.config/sdkconfig review/ 2>/dev/null || true
           cp hardened/out/${{ matrix.board }}-${{ matrix.stack }}/flash.txt review/ 2>/dev/null || true
           cp hardened/matter/dependencies.lock review/matter-dependencies.lock 2>/dev/null || true
           cp hardened/zigbee/dependencies.lock review/zigbee-dependencies.lock 2>/dev/null || true

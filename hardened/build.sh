@@ -47,22 +47,24 @@ if [[ ${SPOOKY_THROWAWAY_KEY:-0} == 1 ]]; then
 fi
 [[ -f $key ]] || die "no signing key at $key (docs/HARDENING.md, step 1)"
 
-bdir="$here/build/$board-$stack"
+bdir="$here/build/$board-$stack"          # CMake build dir (idf.py owns it)
+cdir="$here/build/$board-$stack.config"   # our generated config, kept outside it
 out="$here/out/$board-$stack"
-mkdir -p "$bdir" "$out"
-keycfg="$bdir/sdkconfig.signing"
+rm -rf "$bdir" "$out"                     # always a clean build from the defaults below
+mkdir -p "$cdir" "$out"
+keycfg="$cdir/sdkconfig.signing"
 printf 'CONFIG_SECURE_BOOT_SIGNING_KEY="%s"\n' "$key" > "$keycfg"
 defaults="$here/common/sdkconfig.arduino;$here/common/sdkconfig.security;$here/$proj/sdkconfig.defaults;$keycfg"
-args=(-C "$here/$proj" -B "$bdir" -D SDKCONFIG="$bdir/sdkconfig" -D SDKCONFIG_DEFAULTS="$defaults")
+args=(-C "$here/$proj" -B "$bdir" -D SDKCONFIG="$cdir/sdkconfig" -D SDKCONFIG_DEFAULTS="$defaults")
 [[ $stack == matter-wifi ]] && args+=(-D SPOOKY_WIFI=1)
 
-rm -f "$bdir/sdkconfig"                 # always regenerate from the defaults above
+rm -f "$cdir/sdkconfig"                 # regenerate from the defaults above
 idf.py "${args[@]}" set-target "$chip"
 idf.py "${args[@]}" build
 
 # A misspelt option name in a defaults file is silently ignored, so check the
 # security settings really made it into the final configuration.
-cfg="$bdir/sdkconfig"
+cfg="$cdir/sdkconfig"
 need=(CONFIG_SECURE_BOOT=y CONFIG_SECURE_BOOT_V2_ENABLED=y CONFIG_SECURE_SIGNED_APPS_ECDSA_V2_SCHEME=y
       CONFIG_SECURE_FLASH_ENC_ENABLED=y CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
       CONFIG_SECURE_ENABLE_SECURE_ROM_DL_MODE=y CONFIG_NVS_ENCRYPTION=y CONFIG_NVS_SEC_KEY_PROTECT_USING_HMAC=y
