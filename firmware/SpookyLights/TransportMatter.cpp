@@ -32,6 +32,8 @@
 #if __has_include(<bootloader_random.h>)
 #include <bootloader_random.h>
 #define SPOOKY_BOOT_ENTROPY 1
+#elif defined(ESP_PLATFORM)
+#error "bootloader_random.h not found: the setup code needs a true entropy source (see loadOrCreateSetupCodes)"
 #else
 #define SPOOKY_BOOT_ENTROPY 0
 #endif

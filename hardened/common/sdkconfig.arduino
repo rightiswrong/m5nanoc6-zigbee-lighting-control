@@ -1,0 +1,21 @@
+# Arduino-ESP32 as an ESP-IDF component: what the Arduino core needs, plus the
+# relevant settings from Arduino's own prebuilt libraries
+# (esp32-arduino-lib-builder configs/defconfig.common / .esp32c6 / .esp32h2),
+# so a hardened build behaves like the stock firmware.
+CONFIG_AUTOSTART_ARDUINO=y
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=2304
+# CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0 is not set
+CONFIG_RTC_CLK_CAL_CYCLES=576
+CONFIG_ARDUHAL_LOG_DEFAULT_LEVEL_WARN=y
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+CONFIG_LIBSODIUM_USE_MBEDTLS_SHA=y
+CONFIG_MBEDTLS_HKDF_C=y
+
+# 4 MB flash (NanoC6 and NanoH2), our own partition table
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+# A Secure Boot + Flash Encryption bootloader is bigger than the default
+# 0x8000 - 0x0 allows; give it room (the partition table moves to 0xC000).
+CONFIG_PARTITION_TABLE_OFFSET=0xC000

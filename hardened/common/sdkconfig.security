@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+#  Spooky Lights hardened build: what makes it "hardened". See docs/HARDENING.md.
+#  Flashing a bootloader built with this, and booting it, BURNS eFUSES:
+#  permanent, no undo.
+# ---------------------------------------------------------------------------
+
+# Secure Boot V2: the ROM checks the bootloader, the bootloader checks the
+# app. Only images signed with your key boot. ECDSA P-256 (short keys).
+CONFIG_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_V2_ENABLED=y
+CONFIG_SECURE_SIGNED_APPS_ECDSA_V2_SCHEME=y
+CONFIG_SECURE_BOOT_ECDSA_KEY_LEN_256_BITS=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
+# CONFIG_SECURE_BOOT_SIGNING_KEY is set by build.sh (your key lives outside the repo).
+
+# Flash Encryption, Release mode: XTS-AES-128 for the bootloader, partition
+# table, app and partitions flagged "encrypted" (zb_storage / zb_fct). Release
+# mode also burns DIS_USB_JTAG, DIS_PAD_JTAG, DIS_DIRECT_BOOT,
+# DIS_DOWNLOAD_ICACHE and DIS_DOWNLOAD_MANUAL_ENCRYPT.
+CONFIG_SECURE_FLASH_ENC_ENABLED=y
+CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
+
+# USB stays usable for flashing signed, pre-encrypted updates, but can no
+# longer read flash, read RAM or run code (Secure Download Mode).
+CONFIG_SECURE_ENABLE_SECURE_ROM_DL_MODE=y
+
+# NVS encryption (Wi-Fi password, Thread dataset/network key, Matter fabric
+# keys, BLE bonds, pairing code). NVS can't use the "encrypted" partition
+# flag; this scheme derives its keys from an HMAC key in eFuse BLOCK_KEY5.
+CONFIG_NVS_ENCRYPTION=y
+CONFIG_NVS_SEC_KEY_PROTECT_USING_HMAC=y
+CONFIG_NVS_SEC_HMAC_EFUSE_KEY_ID=5
+
+# No core dumps in flash: they'd be a copy of RAM, keys included.
+CONFIG_ESP_COREDUMP_ENABLE_TO_NONE=y

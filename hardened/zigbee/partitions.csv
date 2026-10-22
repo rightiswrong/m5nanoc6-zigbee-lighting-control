@@ -1,0 +1,8 @@
+# Spooky Lights, hardened Zigbee build (4 MB). Table at 0xC000 (see sdkconfig.arduino).
+# No OTA slots, no SPIFFS, no core dump. zb_storage holds the Zigbee network key:
+# flagged "encrypted" (supported since esp-zigbee-lib 1.6.8, which Arduino 3.3.12 uses).
+# Name,      Type, SubType, Offset,   Size,     Flags
+nvs,         data, nvs,     0xD000,   0x13000,
+factory,     app,  factory, 0x20000,  0x3D0000,
+zb_storage,  data, fat,     0x3F0000, 0x4000,   encrypted
+zb_fct,      data, fat,     0x3F4000, 0x1000,   encrypted

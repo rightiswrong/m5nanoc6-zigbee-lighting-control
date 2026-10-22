@@ -1,0 +1,6 @@
+# Spooky Lights, hardened Matter build (4 MB, NanoC6). Table at 0xC000.
+# No OTA slots, no SPIFFS, no core dump. Everything secret lives in NVS,
+# which is protected by NVS encryption (HMAC key in eFuse), not this table.
+# Name,      Type, SubType, Offset,   Size,     Flags
+nvs,         data, nvs,     0xD000,   0x13000,
+factory,     app,  factory, 0x20000,  0x3E0000,

@@ -1,0 +1,7 @@
+# Zigbee router (ZHA / Zigbee2MQTT): same role as the stock "Zigbee ZCZR" build
+CONFIG_ZB_ENABLED=y
+CONFIG_ZB_ZCZR=y
+CONFIG_ZB_RADIO_NATIVE=y
+# Not used by the Zigbee firmware: leave them out (less to attack)
+CONFIG_BT_ENABLED=n
+CONFIG_OPENTHREAD_ENABLED=n
