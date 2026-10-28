@@ -68,6 +68,8 @@ jobs:
           - { board: nanoc6, stack: matter-wifi, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app",
               cliflags: '["--build-property", "compiler.cpp.extra_flags=-DMATTER_USE_WIFI=1"]' }
           - { board: nanoh2, stack: zigbee, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
+          - { board: nanoc6, stack: zigbee-battery, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=zigbee,ZigbeeMode=ed" }
+          - { board: nanoh2, stack: zigbee-battery, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee,ZigbeeMode=ed" }
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:

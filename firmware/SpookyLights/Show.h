@@ -35,6 +35,7 @@ public:
 
   void load();                    // from NVS (namespace "spooky")
   void saveIfQuiet(uint32_t now); // debounced, rate-limited NVS write
+  void saveNow();                 // write pending changes immediately (before sleeping)
   uint32_t saveCount() const { return _saves; }
 
 private:

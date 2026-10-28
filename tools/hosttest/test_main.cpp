@@ -5,7 +5,7 @@
 // CONFIG_IDF_TARGET_ESP32H2 → NanoH2 pin map, otherwise NanoC6.
 #define SIM_IMPLEMENTATION
 #include "sim.h"
-#if defined(ZIGBEE_MODE_ZCZR)
+#if defined(ZIGBEE_MODE_ZCZR) || defined(ZIGBEE_MODE_ED)
 #include "Zigbee.h"
 ZigbeeCore Zigbee;
 #else
@@ -18,6 +18,8 @@ ArduinoMatter Matter;
 #include "../../firmware/SpookyLights/MatterCodes.h"
 #include "../../firmware/SpookyLights/Demo.h"
 
+#include "esp_sleep.h"
+#include "driver/gpio.h"
 #include <random>
 #include <cstdlib>
 #include <string>
@@ -373,7 +375,8 @@ static void testEndToEnd(const char *) {
   sim.chips.clear();
   sim.setChain(3);
   setup();
-  CHECK(Zigbee.role == ZIGBEE_ROUTER, "should start as router");
+  CHECK(Zigbee.role == (SPOOKY_SLEEPY ? ZIGBEE_END_DEVICE : ZIGBEE_ROUTER), "wrong Zigbee role");
+  CHECK(!CPU_MHZ || getCpuFrequencyMhz() == CPU_MHZ, "CPU at %u MHz, wanted %u", (unsigned)getCpuFrequencyMhz(), (unsigned)CPU_MHZ);
   CHECK(Zigbee.eps.size() == 6, "expected 6 endpoints, got %zu", Zigbee.eps.size());
   CHECK(g_detected == 3, "boot scan saw %u", g_detected);
   for (auto *e : Zigbee.eps) CHECK(e->model && strcmp(e->model, ZB_MODEL) == 0, "ep %u missing model", e->endpoint);
@@ -640,12 +643,120 @@ static void testAutoOrient() {
   CHECK(g_detected == 6 && litModules() == 6, "hot-plug with swapped wiring: %u detected, %d lit", g_detected, litModules());
 }
 
+// ------------------------------------------------------- battery build: sleep
+#if SPOOKY_SLEEPY
+// Run the loop until the firmware deep-sleeps (returns ms after `from`), or
+// `limitMs` passes (returns -1).
+static int64_t runUntilSleep(uint32_t limitMs, uint64_t *sleptUs = nullptr) {
+  uint32_t from = sim.nowMs;
+  try {
+    while (sim.nowMs - from < limitMs) loop();
+  } catch (const HostDeepSleep &z) {
+    if (sleptUs) *sleptUs = z.us;
+    return sim.nowMs - from;
+  }
+  return -1;
+}
+
+// What a timer wake does on the chip: a fresh boot that finds its settings in
+// flash and rejoins. (The radio stack keeps its state between our "boots" —
+// it was started once — so we model the rejoin with the connected flag.)
+static void checkInBoot() {
+  g_hostWakeCause = ESP_SLEEP_WAKEUP_TIMER;
+  power::begin();
+  g_bootMs = millis();
+  g_sleep = {};
+  g_show.load();
+  Zigbee.isConnected = false;
+  loop();                                   // transport notices the drop
+}
+
+static void testSleep() {
+  printf("[sleep] battery build: end device, deep sleep by day\n");
+  Serial.verbose = true;
+  sim.nowMs = 1000;
+  sim.chips.clear();
+  sim.setChain(2);
+  setup();
+  CHECK(Zigbee.role == ZIGBEE_END_DEVICE, "battery build must be an end device");
+  CHECK(!CPU_MHZ || getCpuFrequencyMhz() == CPU_MHZ, "CPU at %u MHz", (unsigned)getCpuFrequencyMhz());
+  auto *light = static_cast<ZigbeeColorDimmableLight *>(zbEp(EP_LIGHT));
+
+  printf("[sleep] lit at night: stays awake\n");
+  Zigbee.isConnected = true;
+  light->fromCoordinator(true, 200, 255, 90, 0);
+  CHECK(runUntilSleep(10 * 60000) < 0, "slept while the light was on");
+  CHECK(litModules() == 2, "%d of 2 modules lit", litModules());
+
+  printf("[sleep] sunrise: off → fades → sleeps after the grace period\n");
+  light->fromCoordinator(false, 200, 255, 90, 0);
+  uint64_t us = 0;
+  int64_t t = runUntilSleep(5 * 60000, &us);
+  CHECK(t >= SLEEP_AFTER_OFF_MS && t <= SLEEP_AFTER_OFF_MS + FADE_MS + 200, "slept %lld ms after off", (long long)t);
+  CHECK(us == (uint64_t)CHECKIN_INTERVAL_S * 1000000ull, "sleep timer %llu us", (unsigned long long)us);
+  CHECK(litModules() == 0 && sim.onboard.r + sim.onboard.g + sim.onboard.b == 0, "LEDs not dark at sleep");
+  CHECK(Preferences::kv()["on"] == 0, "'off' not saved before sleeping");
+  for (int pin : {PIN_RGB_POWER, PIN_STATUS_LED, PIN_GROVE_CLK, PIN_GROVE_DATA})
+    CHECK(g_hostHeld.count(pin) && sim.pinLevel[pin] == LOW, "pin %d not held low", pin);
+
+  printf("[sleep] daytime check-in: rejoin, report, listen, sleep again\n");
+  checkInBoot();
+  CHECK(g_hostHeld.empty(), "pin holds not released on wake");
+  runLoopMs(2500);                          // rejoining…
+  size_t before = epByNum(EP_EFFECT)->reportedOut.size();
+  Zigbee.isConnected = true;
+  t = runUntilSleep(60000, &us);
+  CHECK(epByNum(EP_EFFECT)->reportedOut.size() > before, "check-in did not report state");
+  CHECK(t >= CHECKIN_LISTEN_MS && t <= CHECKIN_LISTEN_MS + 100, "listened %lld ms", (long long)t);
+  CHECK(litModules() == 0, "lit during a dark check-in");
+
+  printf("[sleep] sunset arrives during a check-in: wakes up for the night\n");
+  checkInBoot();
+  Zigbee.isConnected = true;
+  runLoopMs(2000);
+  light->fromCoordinator(true, 200, 255, 90, 0);
+  CHECK(runUntilSleep(10 * 60000) < 0, "went back to sleep although turned on");
+  CHECK(litModules() == 2, "%d of 2 lit after sunset", litModules());
+
+  printf("[sleep] check-in with the network down: gives up and sleeps\n");
+  light->fromCoordinator(false, 200, 255, 90, 0);
+  CHECK(runUntilSleep(5 * 60000) > 0, "did not sleep after off");
+  checkInBoot();
+  t = runUntilSleep(5 * 60000);
+  CHECK(t >= CHECKIN_JOIN_TIMEOUT_MS - 50 && t <= CHECKIN_JOIN_TIMEOUT_MS + 100, "no-network check-in lasted %lld ms",
+        (long long)t);
+
+  printf("[sleep] stack fails to start on a check-in: sleeps instead of rebooting\n");
+  g_hostWakeCause = ESP_SLEEP_WAKEUP_TIMER;
+  power::begin();
+  Zigbee.failBegin = true;
+  int restarts = ESP.restarts;
+  bool slept = false;
+  try { radio().begin(2); } catch (const HostDeepSleep &) { slept = true; }
+  CHECK(slept && ESP.restarts == restarts, "failed start should sleep, not reboot");
+  CHECK(Zigbee.timeoutMs == CHECKIN_JOIN_TIMEOUT_MS, "check-in join timeout not applied");
+
+  printf("[sleep] cold boot, never paired: stays awake to pair\n");
+  Zigbee.failBegin = false;
+  g_hostWakeCause = ESP_SLEEP_WAKEUP_UNDEFINED;
+  power::begin();
+  g_bootMs = millis();
+  g_sleep = {};
+  Zigbee.isConnected = false;
+  CHECK(runUntilSleep(10 * 60000) < 0, "slept before it was ever paired");
+}
+#endif
+
 int main(int argc, char **argv) {
   const char *mode = argc > 1 ? argv[1] : "all";
   Serial.verbose = false;
   printf("== variant: %s · %s ==\n", BOARD_NAME, SPOOKY_MATTER ? "matter" : "zigbee");
   if (strcmp(mode, "orient") == 0) {
     testAutoOrient();
+#if SPOOKY_SLEEPY
+  } else if (strcmp(mode, "sleep") == 0) {
+    testSleep();
+#endif
   } else {
     testEncode();
     testProbeCounts();

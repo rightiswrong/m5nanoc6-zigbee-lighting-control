@@ -1,6 +1,6 @@
 // =============================================================================
-//  Zigbee transport — a Zigbee 3.0 router with standard ZCL clusters, so ZHA
-//  needs no quirk. Endpoints (unchanged since 1.0, the HA integration and the
+//  Zigbee transport — a Zigbee 3.0 router (or, in the battery build, an end
+//  device) with standard ZCL clusters, so ZHA needs no quirk. Endpoints (unchanged since 1.0, the HA integration and the
 //  Zigbee2MQTT converter rely on them):
 //    10  Color Dimmable Light ... on/off, brightness, colour
 //    11  Analog Input ........... detected Grove LED count (reported live)
@@ -18,6 +18,7 @@
 #include "Effects.h"
 #include "Show.h"
 #include "Transport.h"
+#include "Power.h"
 
 namespace {
 
@@ -116,7 +117,22 @@ public:
     Zigbee.addEndpoint(&zbOutput);
     Zigbee.addEndpoint(&zbSpot);
 
-    if (!Zigbee.begin(ZIGBEE_ROUTER)) {
+#if SPOOKY_SLEEPY
+    // End device. Its receiver stays on while awake (rx-on-when-idle), so at
+    // night commands land instantly; by day the whole chip deep-sleeps.
+    esp_zb_cfg_t cfg = ZIGBEE_DEFAULT_ED_CONFIG();
+    if (power::timerWake()) Zigbee.setTimeout(CHECKIN_JOIN_TIMEOUT_MS);
+    bool started = Zigbee.begin(&cfg, false);
+    if (!started && power::timerWake()) {
+      // A check-in and the network isn't answering (coordinator restarting?).
+      // Don't burn the battery retrying: try again at the next check-in.
+      Serial.println("[zb] no network this check-in");
+      power::deepSleep(CHECKIN_INTERVAL_S);
+    }
+#else
+    bool started = Zigbee.begin(ZIGBEE_ROUTER);
+#endif
+    if (!started) {
       Serial.println("[zb] failed to start — rebooting");
       delay(1000);
       ESP.restart();

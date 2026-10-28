@@ -243,3 +243,32 @@ class OnboardingCodeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CourierTests(unittest.TestCase):
+    """Delivering on/off to a battery-build light that sleeps between check-ins."""
+
+    def test_delivered_straight_away(self):
+        c = logic.Courier(0, heard=("t0",))
+        self.assertEqual(c.step(1, True, ("t0",)), "done")
+
+    def test_resends_when_the_device_checks_in(self):
+        c = logic.Courier(0, heard=("t0",), resend=30)
+        self.assertEqual(c.step(1, False, ("t0",)), "wait")
+        self.assertEqual(c.step(5, False, ("t1",)), "send")  # it reported in: send now
+        self.assertEqual(c.step(6, False, ("t1",)), "wait")  # no repeat for the same report
+        self.assertEqual(c.step(8, True, ("t1",)), "done")
+
+    def test_fallback_resend_and_give_up(self):
+        c = logic.Courier(0, heard=(), window=100, resend=30)
+        self.assertEqual(c.step(29, False, ()), "wait")
+        self.assertEqual(c.step(30, False, ()), "send")
+        self.assertEqual(c.step(59, False, ()), "wait")
+        self.assertEqual(c.step(60, False, ()), "send")
+        self.assertEqual(c.step(100, False, ()), "give_up")
+
+    def test_window_outlasts_several_checkins(self):
+        text = (FW / "config.h").read_text()
+        interval = int(re.search(r"#define CHECKIN_INTERVAL_S\s+(\d+)", text).group(1))
+        self.assertGreaterEqual(logic.DELIVERY_WINDOW_S, 3 * interval)
+        self.assertLess(logic.DELIVERY_RESEND_S, interval)

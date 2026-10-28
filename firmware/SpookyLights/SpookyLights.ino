@@ -18,6 +18,11 @@
 //  router for ZHA, or (on the NanoC6) a Matter-over-Thread light you pair with
 //  a QR code. The NanoH2 has too little RAM for Arduino's Matter library.
 //
+//  Battery build (power bank): Partition "Zigbee 4MB with spiffs", Zigbee mode
+//  "Zigbee ED (end device)". It deep-sleeps whenever the light is off and
+//  checks in every CHECKIN_INTERVAL_S (config.h). Switching between the router
+//  and battery builds means removing the device from ZHA and pairing it again.
+//
 //  Button (G9): click = next effect · hold 1–5 s = on/off · hold 5 s+ = leave
 //  the network (Zigbee reset / Matter decommission; LED turns red, release).
 // =============================================================================
@@ -30,6 +35,7 @@
 #include "Renderer.h"
 #include "Show.h"
 #include "Transport.h"
+#include "Power.h"
 
 static P9813Chain chain;
 static Renderer renderer;
@@ -147,11 +153,62 @@ static void scanChainAtBoot() {
 #endif
 }
 
+// ------------------------------------------------------------- sleep by day
+#if SPOOKY_SLEEPY
+// Deep-sleep once the light is off, faded out and the controller knows it.
+//   * A timer check-in where the light stayed off: rejoin, report, listen for
+//     CHECKIN_LISTEN_MS, sleep. (No network within CHECKIN_JOIN_TIMEOUT_MS:
+//     sleep anyway and try at the next check-in.)
+//   * Otherwise (power-on, or the light was on during this boot): stay awake
+//     SLEEP_AFTER_OFF_MS after going dark, and only sleep while joined. An
+//     unpaired light stays awake, so it can always be paired.
+static uint32_t g_bootMs = 0;
+static struct {
+  bool litThisBoot = false;
+  uint32_t darkSince = 0, joinedAt = 0;
+} g_sleep;
+
+static void sleepWhenDark(uint32_t now) {
+  bool &litThisBoot = g_sleep.litThisBoot;
+  uint32_t &darkSince = g_sleep.darkSince, &joinedAt = g_sleep.joinedAt;
+
+  bool connected = radio().connected();
+  if (!connected) joinedAt = 0;
+  else if (!joinedAt) joinedAt = now ? now : 1;
+
+  ShowState s = g_show.get();
+  if (s.on) litThisBoot = true;
+  bool dark = !s.on && renderer.dark() && (int32_t)(g_identifyUntil - now) <= 0 &&
+              digitalRead(PIN_BUTTON) == HIGH;
+  if (!dark) {
+    darkSince = 0;
+    return;
+  }
+  if (!darkSince) darkSince = now ? now : 1;
+
+  bool sleep;
+  if (power::timerWake() && !litThisBoot)
+    sleep = connected ? now - joinedAt >= CHECKIN_LISTEN_MS : now - g_bootMs >= CHECKIN_JOIN_TIMEOUT_MS;
+  else
+    sleep = connected && now - darkSince >= SLEEP_AFTER_OFF_MS && now - joinedAt >= CHECKIN_LISTEN_MS;
+  if (!sleep) return;
+
+  g_show.saveNow();                      // settings survive the sleep
+  power::deepSleep(CHECKIN_INTERVAL_S);  // LEDs are already black (dark())
+}
+#endif
+
 // ------------------------------------------------------------------ setup
 void setup() {
+  power::begin();                        // before any pin is touched (releases sleep holds)
+#if SPOOKY_SLEEPY
+  g_bootMs = millis();
+#endif
   Serial.begin(115200);
   delay(50);
-  Serial.printf("\n== Spooky Lights v%s · %s · %s ==\n", FW_VERSION, BOARD_NAME, SPOOKY_MATTER ? "Matter" : "Zigbee");
+  Serial.printf("\n== Spooky Lights v%s · %s · %s%s · %u MHz · %s ==\n", FW_VERSION, BOARD_NAME,
+                SPOOKY_MATTER ? "Matter" : "Zigbee", SPOOKY_SLEEPY ? " battery" : "",
+                (unsigned)getCpuFrequencyMhz(), power::wakeReason());
 
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   pinMode(PIN_STATUS_LED, OUTPUT);
@@ -212,5 +269,13 @@ void loop() {
   }
 
   g_show.saveIfQuiet(now);
-  delay(1);
+#if SPOOKY_SLEEPY
+  sleepWhenDark(now);
+#endif
+
+  // Idle until the next frame is due (the CPU waits for an interrupt meanwhile).
+  // Capped at 10 ms so the button stays responsive.
+  uint32_t sinceFrame = millis() - lastFrame;
+  uint32_t wait = sinceFrame >= FRAME_INTERVAL_MS ? 1 : FRAME_INTERVAL_MS - sinceFrame;
+  delay(wait > 10 ? 10 : wait);
 }

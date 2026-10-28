@@ -107,12 +107,12 @@ everything still works: set the count by hand from Home Assistant, and set
 ### 2. Flash the firmware
 
 **Option A: prebuilt binary (fastest).** Every [release](https://github.com/rightiswrong/m5nanoc6-zigbee-lighting-control/releases/latest)
-has four images:
+has these images:
 
-| Board | Zigbee (ZHA / Z2M) | Matter over Thread (QR code) | Matter over Wi-Fi (QR code, no border router) |
-|---|---|---|---|
-| M5NanoC6 | `spooky-nanoc6-zigbee-<ver>-factory.bin` | `spooky-nanoc6-matter-<ver>-factory.bin` | `spooky-nanoc6-matter-wifi-<ver>-factory.bin` |
-| M5NanoH2 | `spooky-nanoh2-zigbee-<ver>-factory.bin` | — (not enough RAM, see below) | — (no Wi-Fi) |
+| Board | Zigbee (ZHA / Z2M) | Zigbee on a power bank ([battery build](#-running-on-a-power-bank)) | Matter over Thread (QR code) | Matter over Wi-Fi (QR code, no border router) |
+|---|---|---|---|---|
+| M5NanoC6 | `spooky-nanoc6-zigbee-<ver>-factory.bin` | `spooky-nanoc6-zigbee-battery-<ver>-factory.bin` | `spooky-nanoc6-matter-<ver>-factory.bin` | `spooky-nanoc6-matter-wifi-<ver>-factory.bin` |
+| M5NanoH2 | `spooky-nanoh2-zigbee-<ver>-factory.bin` | `spooky-nanoh2-zigbee-battery-<ver>-factory.bin` | — (not enough RAM, see below) | — (no Wi-Fi) |
 
 Open [ESPHome Web](https://web.esphome.io) in Chrome or Edge, connect the board
 by USB-C, choose **Install** and pick the file. Or from a terminal:
@@ -134,13 +134,13 @@ maximum, 1000 mA budget). To change those, build it yourself:
 2. Open `firmware/SpookyLights/SpookyLights.ino`.
 3. Tools menu:
 
-   | | Zigbee | Matter over Thread |
-   |---|---|---|
-   | Board | **ESP32C6 Dev Module** (NanoC6) / **ESP32H2 Dev Module** (NanoH2) | **ESP32C6 Dev Module** (NanoC6 only) |
-   | USB CDC On Boot | **Enabled** | **Enabled** |
-   | Partition Scheme | **Zigbee ZCZR 4MB with spiffs** | **Huge APP (3MB No OTA/1MB SPIFFS)** |
-   | Zigbee mode | **Zigbee ZCZR (coordinator/router)** | **Disabled** |
-   | Erase All Flash Before Sketch Upload | — | **Enabled** the first time |
+   | | Zigbee | Zigbee, battery build | Matter over Thread |
+   |---|---|---|---|
+   | Board | **ESP32C6 Dev Module** (NanoC6) / **ESP32H2 Dev Module** (NanoH2) | same | **ESP32C6 Dev Module** (NanoC6 only) |
+   | USB CDC On Boot | **Enabled** | **Enabled** | **Enabled** |
+   | Partition Scheme | **Zigbee ZCZR 4MB with spiffs** | **Zigbee 4MB with spiffs** | **Huge APP (3MB No OTA/1MB SPIFFS)** |
+   | Zigbee mode | **Zigbee ZCZR (coordinator/router)** | **Zigbee ED (end device)** | **Disabled** |
+   | Erase All Flash Before Sketch Upload | — | — | **Enabled** the first time |
 
 4. Upload. Open the Serial Monitor at 115200 to watch it count modules.
 
@@ -199,6 +199,64 @@ pick the light:
 * **Zigbee lights** show the auto-mapped entities for you to check.
 
 ---
+
+### 🔋 Running on a power bank
+
+The normal Zigbee build is a **router**: its radio listens around the clock so
+it can relay messages for the rest of your mesh. That receiver alone draws
+roughly 70–80 mA, lights on or off, and it's why a 5,000 mAh power bank lasts
+about a day. No setting fixes that, because a router isn't allowed to sleep.
+
+The **battery build** is a Zigbee *end device* instead:
+
+* **By day (light off)** the ESP32 goes into deep sleep, where the chip draws
+  microamps. Every **2 minutes** it wakes, rejoins, reports, listens for
+  6 seconds and sleeps again. The onboard LED, status LED and Grove lines are
+  held low while it sleeps.
+* **At night (light on)** it stays awake with the receiver on, so commands land
+  instantly, just like the router build. The CPU runs at 80 MHz instead of
+  160 MHz (both builds do this on the NanoC6): plenty for 50 fps effects.
+* After the light is switched off it waits **60 s** before the first sleep, so
+  an accidental "off" can be undone straight away.
+
+**Set it up**
+1. Flash `spooky-nanoc6-zigbee-battery-<ver>-factory.bin` (or build with the
+   *Zigbee ED* settings above).
+2. In ZHA, **remove the old Spooky device and pair it again**. A device can't
+   switch from router to end device without re-pairing. In the Spooky Lights
+   integration, remove and re-add the entry so it maps the new entities.
+3. Point your sunrise/sunset automations at the **Spooky Lights "Haunted light"**
+   entity, not the raw ZHA light. A command sent while the light sleeps is
+   dropped by the Zigbee network, so the integration keeps re-sending it each
+   time the light checks in, for up to 15 minutes. By day, expect the light to
+   respond within about 2 minutes; at night it's instant.
+
+**What to expect.** These are estimates for a NanoC6 with two Grove LEDs, not
+measurements (please measure with a USB power meter and tell us):
+
+| | Router build | Battery build |
+|---|---|---|
+| Day, light off (12 h) | ~90 mA → ~1.1 Ah | ~5–10 mA → ~0.1 Ah |
+| Night, light on (12 h) | ~140 mA → ~1.7 Ah | ~140 mA → ~1.7 Ah |
+| 5,000 mAh bank (≈3.1 Ah at 5 V) | **about 1 day** | **about 1.7 days** |
+
+Nights still cost the same, because the receiver has to stay on for the light to
+be controllable. To stretch further: lower the brightness (each lit channel is
+up to 20 mA), use a bigger bank (10,000 mAh ≈ 3½ days), or raise
+`CHECKIN_INTERVAL_S` in `config.h` (slower daytime response).
+
+> ⚠️ **Power banks that switch themselves off.** Many banks cut their output when
+> the load drops below a few tens of mA, and a sleeping NanoC6 draws far less.
+> If yours does, the board loses power during the day and the lights don't come
+> back at sunset until you press the bank's button. Test it on a weekend: let it
+> sleep for an hour, then turn the light on from Home Assistant. If the bank has
+> a low-current or "trickle charging" mode (often a double press or long press of
+> its button), switch that on.
+
+The trade-offs: an end device doesn't relay for other Zigbee devices, the button
+can't wake it from deep sleep (press it during a check-in, or unplug and replug
+the board), and it sleeps only after it has joined a network, so an unpaired
+board stays awake until you pair it.
 
 ## What you get in Home Assistant
 
@@ -393,6 +451,10 @@ real ESP32-C6/H2 toolchain, and runs HACS and hassfest validation.
 
 * ✅ Zigbee on the NanoC6 is tested on real hardware and works with the onboard LED plus a string of 11 Grove Chainable LEDs so far.
 * ✅ Everything compiles for both chips and passes the simulations above.
+* ⚠️ **The battery build (1.2.0) hasn't run on real hardware yet.** The host
+  simulation covers its sleep/check-in logic, and CI compiles it with
+  Espressif's toolchain. Real current draw and power-bank behaviour still need
+  measuring.
 * ❌ **Matter on the NanoH2 doesn't fit** (see *Why no Matter on the NanoH2?*).
   1.1.0 and 1.1.1 crashed at boot on real hardware; from 1.1.2 the NanoH2 is
   Zigbee-only.

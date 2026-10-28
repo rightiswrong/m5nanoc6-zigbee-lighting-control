@@ -46,6 +46,9 @@ public:
   // Visual feedback helpers (identify / factory reset)
   void setOverride(RGB8 c, uint32_t untilMs) { _override = c; _overrideUntil = untilMs; }
 
+  // Fully faded out and no override showing: every output is black.
+  bool dark() const { return _fade <= 0.0f && (int32_t)(_overrideUntil - _clock) <= 0; }
+
   // Exposed for tests
   int lastChainOut(uint8_t i) const { return _chainOut[i].r + _chainOut[i].g + _chainOut[i].b; }
   float lastPowerScale() const { return _powerScale; }

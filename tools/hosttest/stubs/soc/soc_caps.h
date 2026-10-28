@@ -1,0 +1,2 @@
+#pragma once
+#define SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP 0
