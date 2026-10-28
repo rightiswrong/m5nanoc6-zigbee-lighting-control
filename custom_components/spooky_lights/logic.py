@@ -287,3 +287,44 @@ def chain_change_kind(previous: int, current: int) -> str | None:
     if current < previous:
         return "led_removed"
     return None
+
+
+# ------------------------------------------------------------ battery build
+# The battery firmware deep-sleeps while the light is off and wakes every
+# CHECKIN_INTERVAL_S (firmware config.h, default 120 s) for a few seconds. A
+# command sent while it sleeps is dropped by the Zigbee network, so the light
+# entity keeps a Courier: it re-sends the last on/off command whenever the
+# device is heard from (each check-in reports the LED count) and, as a
+# fallback, every DELIVERY_RESEND_S, until the light's state matches or
+# DELIVERY_WINDOW_S passes. With the mains (router) firmware the first send
+# lands and the Courier is never needed.
+DELIVERY_WINDOW_S = 15 * 60
+DELIVERY_RESEND_S = 30
+
+
+class Courier:
+    """When to (re)send a command to a light that may be asleep. No I/O, no clock."""
+
+    def __init__(
+        self, now: float, heard: object, window: float = DELIVERY_WINDOW_S, resend: float = DELIVERY_RESEND_S
+    ) -> None:
+        self.deadline = now + window
+        self.resend = resend
+        self.next_send = now + resend
+        self.heard = heard
+
+    def step(self, now: float, delivered: bool, heard: object) -> str:
+        """Return "done", "give_up", "send" or "wait".
+
+        `heard` is anything that changes when the device reports in (e.g. the
+        latest last_reported time of its entities).
+        """
+        if delivered:
+            return "done"
+        if now >= self.deadline:
+            return "give_up"
+        if heard != self.heard or now >= self.next_send:
+            self.heard = heard
+            self.next_send = now + self.resend
+            return "send"
+        return "wait"

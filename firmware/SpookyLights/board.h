@@ -28,6 +28,7 @@
 #define PIN_RGB_POWER    10    // load switch for the WS2812 (must be HIGH)
 #define PIN_RGB_DATA     11    // onboard WS2812
 #define BOARD_HAS_WIFI   0
+#define BOARD_LOW_CPU_MHZ 0    // keep the default 96 MHz
 #elif defined(CONFIG_IDF_TARGET_ESP32C6) || !defined(ARDUINO)
 #define BOARD_NAME       "NanoC6"
 #define PIN_GROVE_CLK    1     // yellow (SCL)
@@ -37,6 +38,7 @@
 #define PIN_RGB_POWER    19    // load switch for the WS2812 (must be HIGH)
 #define PIN_RGB_DATA     20    // onboard WS2812
 #define BOARD_HAS_WIFI   1
+#define BOARD_LOW_CPU_MHZ 80   // half the default 160 MHz; plenty for the light + Zigbee
 #else
 #error "Spooky Lights supports the ESP32-C6 (M5NanoC6) and ESP32-H2 (M5NanoH2)."
 #endif

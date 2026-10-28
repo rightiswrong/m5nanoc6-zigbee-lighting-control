@@ -33,6 +33,12 @@ void ShowStore::load() {
 void ShowStore::saveIfQuiet(uint32_t now) {
   if (!_dirty || now - _lastChange < SETTINGS_SAVE_DELAY_MS) return;
   if (_savedOnce && now - _lastSave < SETTINGS_SAVE_MIN_INTERVAL_MS) return;   // stays dirty, saved later
+  saveNow();
+}
+
+void ShowStore::saveNow() {
+  if (!_dirty) return;
+  uint32_t now = millis();
   _dirty = false;
   _savedOnce = true;
   _lastSave = now;

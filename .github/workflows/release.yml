@@ -10,7 +10,8 @@ name: Release
 #                                              switching Zigbee ⇄ Matter; erases pairing!)
 #   spooky-<board>-<stack>-<tag>-app.bin       app only, write at 0x10000 (updates keep pairing)
 #   spooky-<board>-<stack>-<tag>-bootloader.bin / -partitions.bin / .elf
-#     nanoc6-zigbee, nanoc6-matter (Thread), nanoc6-matter-wifi, nanoh2-zigbee
+#     nanoc6-zigbee, nanoc6-matter (Thread), nanoc6-matter-wifi, nanoh2-zigbee,
+#     nanoc6-zigbee-battery, nanoh2-zigbee-battery
 #   spooky_lights-<tag>.zip        the Home Assistant integration
 #   nanoc6_spooky.mjs              optional Zigbee2MQTT converter
 #   matter_label.py + friends      printable Matter pairing labels (tools-<tag>.zip)
@@ -98,6 +99,8 @@ jobs:
           - { board: nanoc6, chip: esp32c6, stack: matter, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app" }
           - { board: nanoc6, chip: esp32c6, stack: matter-wifi, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app", defines: "-DMATTER_USE_WIFI=1" }
           - { board: nanoh2, chip: esp32h2, stack: zigbee, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee_zczr,ZigbeeMode=zczr" }
+          - { board: nanoc6, chip: esp32c6, stack: zigbee-battery, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=zigbee,ZigbeeMode=ed" }
+          - { board: nanoh2, chip: esp32h2, stack: zigbee-battery, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee,ZigbeeMode=ed" }
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -178,6 +181,8 @@ jobs:
             echo "| M5NanoC6 | Matter over Thread (QR code) | \`spooky-nanoc6-matter-$v-factory.bin\` | \`spooky-nanoc6-matter-$v-app.bin\` |"
             echo "| M5NanoC6 | Matter over Wi-Fi (QR code, no Thread border router needed) | \`spooky-nanoc6-matter-wifi-$v-factory.bin\` | \`spooky-nanoc6-matter-wifi-$v-app.bin\` |"
             echo "| M5NanoH2 | ZHA / Zigbee2MQTT (Zigbee) | \`spooky-nanoh2-zigbee-$v-factory.bin\` | \`spooky-nanoh2-zigbee-$v-app.bin\` |"
+            echo "| M5NanoC6 | ZHA, **battery** (sleeps by day) | \`spooky-nanoc6-zigbee-battery-$v-factory.bin\` | \`spooky-nanoc6-zigbee-battery-$v-app.bin\` |"
+            echo "| M5NanoH2 | ZHA, **battery** (sleeps by day) | \`spooky-nanoh2-zigbee-battery-$v-factory.bin\` | \`spooky-nanoh2-zigbee-battery-$v-app.bin\` |"
             echo
             echo "The NanoH2 is Zigbee-only: Arduino's Matter library leaves it too little RAM to start Matter."
             echo "Use the NanoC6 for Matter."

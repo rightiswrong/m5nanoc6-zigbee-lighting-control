@@ -69,6 +69,7 @@ struct Sim {
   RGB8 onboard{0, 0, 0};
   int onboardWrites = 0;
   uint8_t buttonLevel = HIGH;
+  uint8_t pinLevel[64] = {};       // last level written to each pin
   // Which MCU pins the Grove yellow (CI) and white (DI + sense) wires really
   // reach. wireSwapped(true) models a board documented the other way round.
   uint8_t physClk = PIN_GROVE_CLK, physData = PIN_GROVE_DATA;
@@ -109,6 +110,7 @@ HostSerial Serial;
 HostESP ESP;
 void pinMode(uint8_t pin, uint8_t mode) { if (pin == sim.physData) sim.dataMode = mode; }
 void digitalWrite(uint8_t pin, uint8_t val) {
+  if (pin < 64) sim.pinLevel[pin] = val;
   if (pin == sim.physData) sim.dataLevel = val;
   if (pin == sim.physClk) {
     if (val && !sim.clkLevel) sim.risingEdge();

@@ -71,10 +71,22 @@ public:
   void (*outCb)(float) = nullptr;
 };
 
+// Battery build: end-device config (only the role matters on the host)
+typedef struct { int esp_zb_role; } esp_zb_cfg_t;
+#define ZIGBEE_DEFAULT_ED_CONFIG() { 2 }
+
 class ZigbeeCore {
 public:
   bool addEndpoint(ZigbeeEP *ep) { eps.push_back(ep); return true; }
   bool begin(zigbee_role_t r, bool = false) { role = r; started = true; return true; }
+  bool begin(esp_zb_cfg_t *cfg, bool = false) {
+    role = (zigbee_role_t)cfg->esp_zb_role;
+    started = !failBegin;
+    return started;
+  }
+  void setTimeout(uint32_t ms) { timeoutMs = ms; }
+  bool failBegin = false;
+  uint32_t timeoutMs = 30000;
   bool connected() { return isConnected; }
   void factoryReset(bool = true) { resets++; }
   std::vector<ZigbeeEP *> eps;

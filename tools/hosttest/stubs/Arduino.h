@@ -25,6 +25,15 @@ uint32_t millis();
 void rgbLedWrite(uint8_t pin, uint8_t r, uint8_t g, uint8_t b);
 uint32_t esp_random();
 
+// CPU clock (esp32-hal-cpu)
+inline uint32_t g_hostCpuMhz = 160;
+inline uint32_t getCpuFrequencyMhz() { return g_hostCpuMhz; }
+inline bool setCpuFrequencyMhz(uint32_t mhz) {
+  if (mhz != 160 && mhz != 80 && mhz != 40) return false;
+  g_hostCpuMhz = mhz;
+  return true;
+}
+
 // Minimal Arduino String (what the Matter API returns)
 class String {
 public:
@@ -38,6 +47,7 @@ private:
 
 struct HostSerial {
   void begin(unsigned long) {}
+  void flush() {}
   void println(const char *s = "") {
     if (verbose) { fputs(s, stdout); fputc('\n', stdout); }
     capture(s);

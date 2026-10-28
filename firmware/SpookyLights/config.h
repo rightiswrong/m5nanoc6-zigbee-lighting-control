@@ -9,20 +9,28 @@
 
 // Keep in sync with custom_components/spooky_lights/manifest.json "version"
 // (the release workflow refuses to publish if they differ from the tag).
-#define FW_VERSION "1.1.4"
+#define FW_VERSION "1.2.0"
 
 // ------------------------------------------------------------ Radio stack
 // Chosen with the Arduino IDE "Zigbee Mode" menu — no code changes needed:
-//   Zigbee ZCZR (coordinator/router) → Zigbee router, pairs with ZHA / Z2M
+//   Zigbee ZCZR (coordinator/router) → Zigbee router, pairs with ZHA / Z2M.
+//                                      Radio listens 24/7 (mains power).
+//   Zigbee ED (end device)           → Battery build: a Zigbee end device that
+//                                      deep-sleeps while the light is off and
+//                                      wakes every CHECKIN_INTERVAL_S to check in.
 //   Disabled                         → Matter over Thread (QR-code pairing; NanoC6 only)
 #if defined(ZIGBEE_MODE_ZCZR)
 #define SPOOKY_ZIGBEE 1
 #define SPOOKY_MATTER 0
+#define SPOOKY_SLEEPY 0
 #elif defined(ZIGBEE_MODE_ED)
-#error "Use Tools > Zigbee mode > 'Zigbee ZCZR (coordinator/router)' (or 'Disabled' for Matter)"
+#define SPOOKY_ZIGBEE 1
+#define SPOOKY_MATTER 0
+#define SPOOKY_SLEEPY 1
 #else
 #define SPOOKY_ZIGBEE 0
 #define SPOOKY_MATTER 1
+#define SPOOKY_SLEEPY 0
 #endif
 
 // Matter is NanoC6-only. On the ESP32-H2, Arduino's prebuilt Matter library
@@ -120,6 +128,33 @@
 // Serial QR style: 1 = for dark-background terminals (most terminals,
 // Arduino IDE dark theme), 0 = for light-background serial monitors.
 #define MATTER_QR_DARK_TERMINAL 1
+
+// ------------------------------------------------------------------- Power
+// CPU clock while awake. The light needs very little: an effect frame is a few
+// hundred microseconds of maths every 20 ms, and the Zigbee radio is happy at
+// 80 MHz. Halving the ESP32-C6's default 160 MHz trims a few mA around the
+// clock. The receiver, not the CPU, is the big constant draw (~70 mA while
+// listening), which is why the battery build sleeps instead.
+// 0 = leave the core's default. Matter builds keep the default (its pairing
+// crypto is slow enough already); the NanoH2 keeps its default 96 MHz.
+#if SPOOKY_ZIGBEE
+#define CPU_MHZ              BOARD_LOW_CPU_MHZ
+#else
+#define CPU_MHZ              0
+#endif
+
+// Battery build only (Tools > Zigbee mode > "Zigbee ED"):
+// While the light is off it sleeps, waking every CHECKIN_INTERVAL_S to rejoin,
+// report, and listen for CHECKIN_LISTEN_MS. Commands sent while it sleeps are
+// lost by the network, so the Home Assistant integration repeats them until the
+// light answers (see "Battery power" in the README). Longer interval = longer
+// battery life but a slower response by day (worst case ≈ interval + ~10 s).
+#define CHECKIN_INTERVAL_S   120
+#define CHECKIN_LISTEN_MS    6000     // awake & listening after each rejoin
+#define CHECKIN_JOIN_TIMEOUT_MS 15000 // coordinator not answering → sleep again
+// After the light is switched off (or on a fresh boot), stay awake this long
+// before the first sleep, so a mistaken "off" can be undone straight away.
+#define SLEEP_AFTER_OFF_MS   60000
 
 // ------------------------------------------------------------------ Button
 #define BUTTON_FACTORY_RESET_MS 5000
