@@ -42,7 +42,7 @@ jobs:
       tag: ${{ steps.decide.outputs.tag }}
       publish: ${{ steps.decide.outputs.publish }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Decide tag and whether to publish
@@ -71,10 +71,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - run: git init -q "$RUNNER_TEMP/jsQR" && git -C "$RUNNER_TEMP/jsQR" fetch -q --depth 1 https://github.com/cozmo/jsQR 8e6a036beafa7053dd44b1b76ac578d22b1b3311 && git -C "$RUNNER_TEMP/jsQR" checkout -q FETCH_HEAD
@@ -102,7 +102,7 @@ jobs:
           - { board: nanoc6, chip: esp32c6, stack: zigbee-battery, fqbn: "esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=zigbee,ZigbeeMode=ed" }
           - { board: nanoh2, chip: esp32h2, stack: zigbee-battery, fqbn: "esp32:esp32:esp32h2:CDCOnBoot=cdc,PartitionScheme=zigbee,ZigbeeMode=ed" }
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: arduino/setup-arduino-cli@81d310742121c928ea9c8bbd407b4217b432ae02 # v2
@@ -140,7 +140,7 @@ jobs:
           fi
           cp core-version.txt "dist/$n-core.txt"
           ls -la dist
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fw-${{ matrix.board }}-${{ matrix.stack }}
           path: dist/
@@ -153,10 +153,10 @@ jobs:
       id-token: write        # sign build-provenance attestations (Sigstore)
       attestations: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: fw
           merge-multiple: true
@@ -210,7 +210,7 @@ jobs:
             echo "$core"
             echo '```'
           } > release-notes.md
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: spooky-lights-${{ needs.plan.outputs.tag }}
           path: dist/
@@ -221,7 +221,7 @@ jobs:
           subject-path: dist/*
       - name: Publish GitHub release
         if: needs.plan.outputs.publish == 'true'
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ needs.plan.outputs.tag }}
           target_commitish: ${{ github.sha }}
