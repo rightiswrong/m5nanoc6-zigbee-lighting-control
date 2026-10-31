@@ -485,11 +485,13 @@ real ESP32-C6/H2 toolchain, and runs HACS and hassfest validation.
 
 | Symptom | Fix |
 |---|---|
+| LEDs dead, flicker, or stop responding, or the board resets | Try a known-good USB cable and a solid 5 V / 2 A supply first. A marginal cable can power the board but sag once the Grove LEDs draw current |
 | Serial says *sense line is high during the start frame* | The 18 kΩ pull-down is missing, or the return wire is connected without the divider |
 | Count stays 0 with modules attached | Terminator not on the **last** module's OUT, or `CHAIN_DETECT_LOOPBACK` is 0. Use *Manual LED count* meanwhile |
 | Far modules flicker or show wrong colours | Long cables: raise `P9813_HALF_PERIOD_US` (e.g. 6–10) |
 | No "Grove LEDs detected" sensor in ZHA | Update Home Assistant (generic Analog Input sensors are a recent ZHA addition); everything else works without it |
 | Onboard LED stays dark | Nothing to wire. Check that `Output` isn't *Grove chain only* |
+| Battery build stays dark and ignores commands | Check the power bank first: many switch off when a sleeping board draws too little (see [Running on a power bank](#-running-on-a-power-bank)). Then check it was removed from ZHA and paired again after flashing, and that automations target the Spooky Lights *Haunted light* entity, not the raw ZHA light. By day it answers within ~2 minutes, at its next check-in |
 | Device won't pair (Zigbee) | Hold the button 5 s → red → release (Zigbee factory reset), then pair again |
 | Matter pairing problems | See [docs/MATTER.md](docs/MATTER.md#troubleshooting): Thread credentials, border router, IPv6 |
 
