@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: home-assistant/actions/hassfest@86d4564712fa02543c808e3a693dd04f9d3f8361 # master
+      - uses: home-assistant/actions/hassfest@9e9565e68f5a70d874202871f4c4064d23814235 # master
 
   logic-tests:
     name: Integration logic + firmware sync tests
@@ -74,7 +74,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: arduino/compile-sketches@d7af6619a62e765d91f0a4d65b40cf061537a15d # v1
+      - uses: arduino/compile-sketches@3f3921bad94c706a153e6d7294445b49d7f76a63 # v1
         with:
           platforms: |
             - name: esp32:esp32
